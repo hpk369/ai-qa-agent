@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI QA Agent — Big Data Pipeline Intelligence</title>
+<style>
+:root{
+  --bg:#09080a;--bg2:#100e0c;--s1:#161210;--s2:#1e1b17;--s3:#272320;
+  --b1:#38322a;--b2:#4d4538;
+  --tx:#f2ede5;--mu:#9a9080;--di:#635c52;
+  --am:#f5a623;--am2:rgba(245,166,35,.18);--am3:rgba(245,166,35,.08);--amg:rgba(245,166,35,.3);
+  --gn:#22c55e;--gn2:rgba(34,197,94,.14);
+  --rd:#ef4444;--rd2:rgba(239,68,68,.14);
+  --bl:#60a5fa;--bl2:rgba(96,165,250,.14);
+  --pu:#a78bfa;--pu2:rgba(167,139,250,.14);
+  --yw:#fbbf24;
+  --r:10px;--r2:14px;--mono:'SF Mono','Fira Code','Cascadia Code',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;line-height:1.6;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(circle at 1px 1px,rgba(245,166,35,.05) 1px,transparent 0);background-size:36px 36px;pointer-events:none;z-index:0}
+
+/* HEADER */
+header{position:sticky;top:0;z-index:100;background:rgba(9,8,10,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--b1);padding:12px 28px;display:flex;align-items:center;gap:14px}
+.logo{width:36px;height:36px;background:linear-gradient(135deg,var(--am),#c97d1a);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 0 18px var(--amg);flex-shrink:0}
+.logo-t h1{font-size:.95rem;font-weight:700;letter-spacing:-.2px}
+.logo-t p{font-size:.65rem;color:var(--mu);line-height:1}
+nav{margin-left:auto;display:flex;align-items:center;gap:8px}
+.nl{font-size:.75rem;color:var(--mu);text-decoration:none;padding:5px 10px;border:1px solid transparent;border-radius:6px;transition:all .15s;display:flex;align-items:center;gap:5px}
+.nl:hover{color:var(--tx);border-color:var(--b2)}
+.nl.gh:hover{color:var(--am);border-color:var(--am)}
+
+/* HERO */
+.hero{position:relative;z-index:1;text-align:center;padding:52px 24px 36px;max-width:720px;margin:0 auto}
+.eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:.68rem;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--am);padding:4px 12px;border-radius:20px;border:1px solid var(--amg);background:var(--am3);margin-bottom:18px}
+.hero h2{font-size:2.4rem;font-weight:800;line-height:1.18;margin-bottom:14px;background:linear-gradient(140deg,var(--tx) 40%,var(--am));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero p{font-size:.95rem;color:var(--mu);max-width:520px;margin:0 auto 26px}
+.hero-stats{display:flex;justify-content:center;gap:36px;flex-wrap:wrap}
+.stat .n{font-size:1.65rem;font-weight:800;color:var(--am);line-height:1}
+.stat .l{font-size:.65rem;color:var(--mu);text-transform:uppercase;letter-spacing:.6px}
+
+/* LAYOUT */
+.wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 20px}
+.sec-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--am);margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--b1)}
+hr.div{border:none;border-top:1px solid var(--b1);margin:0 20px 32px}
+
+/* SCENARIO STRIP */
+.scen-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
+.scen{padding:9px 16px;border:1px solid var(--b1);border-radius:8px;background:var(--s1);color:var(--mu);font-size:.78rem;cursor:pointer;transition:all .18s;display:flex;align-items:flex-start;gap:8px;text-align:left}
+.scen:hover{border-color:var(--b2);background:var(--s2);color:var(--tx)}
+.scen.active{border-color:var(--am);background:var(--am3);color:var(--am);font-weight:600;box-shadow:0 0 14px var(--amg)}
+.scen.active.fail{border-color:var(--rd);background:var(--rd2);color:var(--rd);box-shadow:none}
+.scen-icon{font-size:1.1rem;line-height:1;flex-shrink:0}
+.scen-lbl{font-weight:700;font-size:.78rem}
+.scen-sub{font-size:.66rem;opacity:.7;margin-top:1px}
+
+/* FILE GRID */
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:28px}
+@media(max-width:680px){.fg{grid-template-columns:1fr}}
+
+.fc{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;transition:border-color .2s}
+.fc.loaded{border-color:rgba(245,166,35,.28)}
+.fc-head{padding:13px 15px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:11px}
+.ficon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0}
+.ficon.csv{background:var(--gn2)}.ficon.log{background:var(--am3)}.ficon.json{background:var(--bl2)}
+.fmeta{flex:1;min-width:0}
+.fname{font-size:.82rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fdesc{font-size:.67rem;color:var(--mu);margin-top:1px;line-height:1.3}
+.fstat{font-size:.6rem;padding:2px 6px;border-radius:4px;font-weight:700;background:var(--am3);color:var(--am);white-space:nowrap;border:1px solid var(--amg);flex-shrink:0}
+
+.fc-body{padding:13px 15px}
+.finfo{display:flex;gap:18px;margin-bottom:11px;flex-wrap:wrap}
+.fi{font-size:.7rem;color:var(--mu)}.fi b{color:var(--tx)}
+.fbtns{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.btn{font-size:.7rem;padding:5px 10px;border-radius:6px;border:1px solid var(--b1);background:var(--s2);color:var(--mu);cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:var(--b2);color:var(--tx)}
+.btn.amber{border-color:var(--am);color:var(--am);background:var(--am3)}.btn.amber:hover{background:var(--am2)}
+.btn.ghost{border-color:var(--b1)}
+
+.fprev{margin-top:10px;display:none;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;font-family:var(--mono);font-size:.62rem;line-height:1.7;color:var(--mu);padding:10px 12px;max-height:150px;overflow-y:auto;white-space:pre;overflow-x:auto}
+.fprev::-webkit-scrollbar{width:3px;height:3px}.fprev::-webkit-scrollbar-thumb{background:var(--b1)}
+
+.fexplain{margin-top:10px;display:none;font-size:.7rem;color:var(--mu);line-height:1.65;padding:10px 12px;background:var(--s2);border-radius:6px;border-left:2px solid var(--am)}
+.fexplain strong{color:var(--tx)}
+
+.drop-zone{margin-top:10px;padding:14px;border:1.5px dashed var(--b1);border-radius:8px;text-align:center;cursor:pointer;transition:all .2s;display:none}
+.drop-zone:hover,.drop-zone.over{border-color:var(--am);background:var(--am3)}
+.drop-zone p{font-size:.7rem;color:var(--mu)}.drop-zone strong{color:var(--am)}
+
+/* SCHEMA PAIR */
+.spair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.spair-label{font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mu);margin-bottom:4px}
+.sjson{background:var(--bg2);border:1px solid var(--b1);border-radius:6px;font-family:var(--mono);font-size:.62rem;line-height:1.7;color:var(--mu);padding:10px 12px;max-height:130px;overflow-y:auto;white-space:pre}
+
+/* CTA */
+.cta{text-align:center;padding:4px 24px 36px;position:relative;z-index:1}
+.run{padding:14px 44px;background:var(--am);border:none;border-radius:10px;color:#09080a;font-size:1rem;font-weight:800;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:10px;box-shadow:0 0 26px var(--amg)}
+.run:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 0 44px var(--amg)}
+.run:disabled{background:var(--b1);color:var(--mu);cursor:not-allowed;box-shadow:none;transform:none}
+.run-hint{font-size:.72rem;color:var(--di);margin-top:9px}
+.sp{width:15px;height:15px;border:2.5px solid rgba(0,0,0,.2);border-top-color:rgba(0,0,0,.6);border-radius:50%;animation:spin .7s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* RESULTS */
+#results{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 20px 60px;display:none}
+
+.step-track{display:flex;margin-bottom:22px}
+.st{flex:1;text-align:center;position:relative;padding:0 4px}
+.st::before{content:'';position:absolute;top:13px;left:calc(50% + 14px);right:calc(-50% + 14px);height:1px;background:var(--b1);z-index:0;transition:background .4s}
+.st:last-child::before{display:none}
+.st.done::before{background:var(--am)}
+.sdot{width:26px;height:26px;border-radius:50%;border:2px solid var(--b1);background:var(--s1);margin:0 auto 5px;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;position:relative;z-index:1;transition:all .3s;color:var(--di)}
+.st.active .sdot{border-color:var(--am);color:var(--am);background:var(--am3)}
+.st.done .sdot{border-color:var(--am);background:var(--am);color:var(--bg)}
+.st.fail .sdot{border-color:var(--rd);background:var(--rd);color:#fff}
+.slbl{font-size:.6rem;color:var(--di);line-height:1.3}
+.st.active .slbl,.st.done .slbl{color:var(--mu)}
+
+.rg{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:740px){.rg{grid-template-columns:1fr}}
+
+.panel{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden}
+.ph{padding:10px 16px;border-bottom:1px solid var(--b1);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--mu);display:flex;align-items:center;gap:7px}
+.pb{padding:14px 16px}
+
+.alog{background:var(--bg);border:1px solid var(--b1);border-radius:8px;font-family:var(--mono);font-size:.68rem;line-height:1.9;padding:12px 13px;min-height:170px;max-height:280px;overflow-y:auto}
+.alog::-webkit-scrollbar{width:3px}.alog::-webkit-scrollbar-thumb{background:var(--b1)}
+.lr{display:flex;gap:9px;margin-bottom:1px}
+.lts{color:var(--di);min-width:52px;flex-shrink:0}
+.ltd{color:var(--di);font-size:.6rem;margin-right:2px}
+.cp{color:var(--pu)}.cok{color:var(--gn)}.cfl{color:var(--rd)}.ci{color:var(--am)}.cs{color:var(--yw)}.cd{color:var(--di)}
+
+.tg{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+@media(max-width:560px){.tg{grid-template-columns:1fr}}
+.tc{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);padding:12px;transition:all .3s}
+.tc.calling{border-color:var(--pu);animation:tpulse 1s ease-in-out infinite alternate}
+.tc.pass{border-color:var(--gn)}.tc.fail{border-color:var(--rd)}
+@keyframes tpulse{from{opacity:.7}to{opacity:1}}
+.tn{font-size:.72rem;font-weight:700;color:var(--mu);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.ts{font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700}
+.ts.idle{background:var(--b1);color:var(--mu)}
+.ts.calling{background:var(--pu2);color:var(--pu)}
+.ts.pass{background:var(--gn2);color:var(--gn)}
+.ts.fail{background:var(--rd2);color:var(--rd)}
+.tm{font-size:.68rem;color:var(--mu);margin-top:3px}.tm b{color:var(--tx)}
+
+.vwrap{display:none;animation:fu .4s ease;margin-bottom:16px}
+@keyframes fu{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.vc{border-radius:var(--r2);padding:18px 22px;border:2px solid var(--b1)}
+.vc.pass{border-color:var(--gn);background:var(--gn2)}.vc.fail{border-color:var(--rd);background:var(--rd2)}
+.vh{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.vem{font-size:2rem}.vl{font-size:1.45rem;font-weight:900}
+.vl.pass{color:var(--gn)}.vl.fail{color:var(--rd)}
+.vsub{font-size:.72rem;color:var(--mu);margin-top:1px}
+.vr{font-size:.84rem;color:var(--tx);margin:8px 0 6px}
+.vd{list-style:none}.vd li{font-size:.76rem;color:var(--mu);padding:2px 0 2px 13px;position:relative}
+.vd li::before{content:'→';position:absolute;left:0;color:var(--rd);font-size:.7rem}
+.va{margin-top:11px;padding:9px 12px;background:var(--s1);border-radius:7px;font-size:.76rem;border-left:3px solid var(--am)}
+.vconf{font-size:.68rem;color:var(--mu);margin-top:10px}
+.cbar{height:3px;background:var(--b1);border-radius:2px;margin-top:4px;overflow:hidden}
+.cfill{height:100%;border-radius:2px;transition:width 1.2s ease}
+
+.twrap{display:none;animation:fu .4s ease}
+.fwtag{font-size:.66rem;padding:3px 9px;border-radius:4px;font-weight:700}
+.fwtag.robot{background:var(--gn2);color:var(--gn);border:1px solid rgba(34,197,94,.25)}
+.fwtag.pytest{background:var(--am3);color:var(--am);border:1px solid var(--amg)}
+.tcase{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:5px;margin-bottom:3px;font-size:.7rem;font-family:var(--mono);background:var(--s2);border:1px solid var(--b1)}
+
+/* FOOTER */
+footer{position:relative;z-index:1;border-top:1px solid var(--b1);padding:20px 28px;display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--di)}
+footer a{color:var(--am);text-decoration:none}.footer-right{margin-left:auto;display:flex;gap:16px}
+
+/* IDLE */
+.idle{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:150px;gap:8px;color:var(--di);text-align:center}
+.idle .ii{font-size:2rem;opacity:.35}.idle p{font-size:.76rem;line-height:1.5}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🤖</div>
+  <div class="logo-t"><h1>AI QA Agent</h1><p>Big Data Pipeline Intelligence</p></div>
+  <nav>
+    <a class="nl" href="#workspace">Workspace</a>
+    <a class="nl" href="#results">Results</a>
+    <a class="nl gh" href="https://github.com/hpk369/ai-qa-agent" target="_blank">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </nav>
+</header>
+
+<div class="hero">
+  <div class="eyebrow">✦ Powered by Claude API · Tool-Use Mode</div>
+  <h2>Upload Pipeline Data.<br>Watch the Agent Find What's Wrong.</h2>
+  <p>Drop in CSV exports, Spark logs, and schema definitions. Three specialized QA tools feed an LLM that synthesizes a root-cause verdict — live in your browser.</p>
+  <div class="hero-stats">
+    <div class="stat"><div class="n">3</div><div class="l">QA Tools</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">Failure Modes</div></div>
+    <div class="stat"><div class="n">50</div><div class="l">Test Cases</div></div>
+    <div class="stat"><div class="n">&lt;3s</div><div class="l">Analysis Time</div></div>
+  </div>
+</div>
+
+<hr class="div">
+
+<section id="workspace" class="wrap" style="padding-bottom:28px">
+  <div class="sec-title">⬡ File Workspace</div>
+
+  <!-- Scenario strip -->
+  <div class="scen-strip">
+    <button class="scen active" data-mode="none" onclick="selectScenario('none',this)">
+      <span class="scen-icon">✅</span>
+      <div><div class="scen-lbl">Clean Run</div><div class="scen-sub">All checks pass</div></div>
+    </button>
+    <button class="scen" data-mode="row_drop" onclick="selectScenario('row_drop',this)">
+      <span class="scen-icon">📉</span>
+      <div><div class="scen-lbl">Row Drop</div><div class="scen-sub">40% rows missing</div></div>
+    </button>
+    <button class="scen" data-mode="schema_drift" onclick="selectScenario('schema_drift',this)">
+      <span class="scen-icon">🔀</span>
+      <div><div class="scen-lbl">Schema Drift</div><div class="scen-sub">Column renamed</div></div>
+    </button>
+    <button class="scen" data-mode="null_spike" onclick="selectScenario('null_spike',this)">
+      <span class="scen-icon">🕳️</span>
+      <div><div class="scen-lbl">Null Spike</div><div class="scen-sub">35% nulls</div></div>
+    </button>
+    <button class="scen" data-mode="latency" onclick="selectScenario('latency',this)">
+      <span class="scen-icon">⏱️</span>
+      <div><div class="scen-lbl">Kafka Lag</div><div class="scen-sub">15k msgs behind</div></div>
+    </button>
+  </div>
+
+  <!-- File cards -->
+  <div class="fg">
+
+    <!-- Source CSV -->
+    <div class="fc loaded" id="fc-source">
+      <div class="fc-head">
+        <div class="ficon csv">📊</div>
+        <div class="fmeta">
+          <div class="fname">source_transactions.csv</div>
+          <div class="fdesc">Ground-truth source table export from PostgreSQL</div>
+        </div>
+        <div class="fstat" id="fst-source">25 rows</div>
+      </div>
+      <div class="fc-body">
+        <div class="finfo">
+          <div class="fi">Columns: <b>6</b></div>
+          <div class="fi">Schema: <b>fixed</b></div>
+          <div class="fi">Format: <b>CSV</b></div>
+        </div>
+        <div class="fbtns">
+          <button class="btn amber" onclick="togglePreview('source')">👁 Preview</button>
+          <button class="btn" onclick="downloadFile('source')">↓ Download</button>
+          <button class="btn ghost" onclick="toggleExplain('source')">? Explain</button>
+          <input type="file" accept=".csv" id="up-source" class="hidden" onchange="handleUpload('source',this)">
+          <button class="btn" onclick="document.getElementById('up-source').click()">↑ Upload</button>
+        </div>
+        <pre class="fprev" id="prev-source"></pre>
+        <div class="fexplain" id="exp-source">
+          <strong>What this file is:</strong> A 25-row export from the <code>src.transactions</code> PostgreSQL table — the upstream source of truth. Columns are <em>transaction_id, customer_id, account_balance, amount, transaction_date, status</em>.<br><br>
+          <strong>What the agent checks:</strong> The SQL Validator compares this row count and null rates against the target table. If the target has significantly fewer rows or more nulls, it flags a data quality issue.<br><br>
+          <strong>This file never changes</strong> across scenarios — it's the baseline the agent measures everything else against.
+        </div>
+      </div>
+    </div>
+
+    <!-- Target CSV -->
+    <div class="fc loaded" id="fc-target">
+      <div class="fc-head">
+        <div class="ficon csv">📋</div>
+        <div class="fmeta">
+          <div class="fname" id="fn-target">target_transactions_clean.csv</div>
+          <div class="fdesc">Pipeline output — Spark-transformed target table</div>
+        </div>
+        <div class="fstat" id="fst-target">25 rows</div>
+      </div>
+      <div class="fc-body">
+        <div class="finfo">
+          <div class="fi">Rows: <b id="fi-tgt-rows">25</b></div>
+          <div class="fi">Nulls: <b id="fi-tgt-nulls">0%</b></div>
+          <div class="fi">Drop: <b id="fi-tgt-drop">0%</b></div>
+        </div>
+        <div class="fbtns">
+          <button class="btn amber" onclick="togglePreview('target')">👁 Preview</button>
+          <button class="btn" onclick="downloadFile('target')">↓ Download</button>
+          <button class="btn ghost" onclick="toggleExplain('target')">? Explain</button>
+          <input type="file" accept=".csv" id="up-target" class="hidden" onchange="handleUpload('target',this)">
+          <button class="btn" onclick="document.getElementById('up-target').click()">↑ Upload Your Own</button>
+        </div>
+        <pre class="fprev" id="prev-target"></pre>
+        <div class="fexplain" id="exp-target">
+          <strong>What this file is:</strong> The <code>tgt.transactions</code> table after the Spark transformation job. This is what actually landed in the data warehouse.<br><br>
+          <strong>What the agent checks:</strong> Row count vs source (threshold: 5% drop), per-column null rates (threshold: 5%), and duplicate transaction_ids.<br><br>
+          <strong>Try the failure modes:</strong> <em>Row Drop</em> loads 15 rows (40% missing). <em>Null Spike</em> loads 25 rows with 9 empty customer_ids (36% null rate). <em>Upload your own CSV</em> with the same columns to test against real data.
+        </div>
+      </div>
+    </div>
+
+    <!-- Spark Log -->
+    <div class="fc loaded" id="fc-log">
+      <div class="fc-head">
+        <div class="ficon log">📜</div>
+        <div class="fmeta">
+          <div class="fname" id="fn-log">spark_run_clean.log</div>
+          <div class="fdesc">Spark executor log from the latest pipeline run</div>
+        </div>
+        <div class="fstat" id="fst-log">10 lines</div>
+      </div>
+      <div class="fc-body">
+        <div class="finfo">
+          <div class="fi">Errors: <b id="fi-log-err">0</b></div>
+          <div class="fi">Warnings: <b id="fi-log-warn">0</b></div>
+          <div class="fi">Kafka lag: <b id="fi-log-lag">0</b></div>
+        </div>
+        <div class="fbtns">
+          <button class="btn amber" onclick="togglePreview('log')">👁 Preview</button>
+          <button class="btn" onclick="downloadFile('log')">↓ Download</button>
+          <button class="btn ghost" onclick="toggleExplain('log')">? Explain</button>
+          <input type="file" accept=".log,.txt" id="up-log" class="hidden" onchange="handleUpload('log',this)">
+          <button class="btn" onclick="document.getElementById('up-log').click()">↑ Upload Your Own</button>
+        </div>
+        <pre class="fprev" id="prev-log"></pre>
+        <div class="fexplain" id="exp-log">
+          <strong>What this file is:</strong> The raw stdout log from the Spark executor. In production this comes from YARN / Databricks cluster logs.<br><br>
+          <strong>What the agent checks:</strong> Scans for <code>ERROR</code> and <code>WARN</code> lines, extracts error messages, and reads Kafka consumer lag numbers using regex.<br><br>
+          <strong>Try the failure modes:</strong> <em>Row Drop</em> log shows partition skew and deduplication errors. <em>Schema Drift</em> shows a missing-column error. <em>Null Spike</em> shows a NullPointerException. <em>Kafka Lag</em> shows lag growing past 15,000 messages.
+        </div>
+      </div>
+    </div>
+
+    <!-- Schema -->
+    <div class="fc loaded" id="fc-schema">
+      <div class="fc-head">
+        <div class="ficon json">{}</div>
+        <div class="fmeta">
+          <div class="fname">schema_definitions.json</div>
+          <div class="fdesc">Column → type mappings for source and target tables</div>
+        </div>
+        <div class="fstat" id="fst-schema">MATCH</div>
+      </div>
+      <div class="fc-body">
+        <div class="finfo">
+          <div class="fi">Src cols: <b id="fi-sch-src">6</b></div>
+          <div class="fi">Tgt cols: <b id="fi-sch-tgt">6</b></div>
+          <div class="fi">Drift: <b id="fi-sch-drift">none</b></div>
+        </div>
+        <div class="fbtns">
+          <button class="btn amber" onclick="togglePreview('schema')">👁 Preview</button>
+          <button class="btn" onclick="downloadFile('schema')">↓ Download</button>
+          <button class="btn ghost" onclick="toggleExplain('schema')">? Explain</button>
+          <input type="file" accept=".json" id="up-schema" class="hidden" onchange="handleUpload('schema',this)">
+          <button class="btn" onclick="document.getElementById('up-schema').click()">↑ Upload Your Own</button>
+        </div>
+        <div class="fprev" id="prev-schema" style="display:none">
+          <div class="spair" style="display:grid">
+            <div><div class="spair-label">Source Schema</div><pre class="sjson" id="sj-src"></pre></div>
+            <div><div class="spair-label">Target Schema</div><pre class="sjson" id="sj-tgt"></pre></div>
+          </div>
+        </div>
+        <div class="fexplain" id="exp-schema">
+          <strong>What this file is:</strong> JSON maps of <code>column_name → data_type</code> for both <code>src.transactions</code> and <code>tgt.transactions</code>. In production, these are fetched from <code>information_schema.columns</code>.<br><br>
+          <strong>What the agent checks:</strong> Compares source and target column sets. Detects renames (same type, different name), removals, additions, and type changes.<br><br>
+          <strong>Try Schema Drift:</strong> The drifted target has <code>account_balance</code> renamed to <code>bal</code> — the exact kind of silent breakage a Flyway migration can cause in the wrong environment.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /fg -->
+</section>
+
+<div class="cta">
+  <button class="run" id="runBtn" onclick="runAnalysis()">
+    <div class="sp" id="spinner"></div>
+    <span id="btnTxt">🔍 Analyze Pipeline</span>
+  </button>
+  <div class="run-hint">The agent will call all three QA tools then synthesize a verdict</div>
+</div>
+
+<!-- RESULTS -->
+<section id="results" class="wrap" style="padding-bottom:60px">
+
+  <div class="sec-title">⬡ Analysis Results</div>
+
+  <!-- Step tracker -->
+  <div class="step-track">
+    <div class="st" id="st1"><div class="sdot" id="sd1">1</div><div class="slbl">Files<br>Loaded</div></div>
+    <div class="st" id="st2"><div class="sdot" id="sd2">2</div><div class="slbl">SQL<br>Validator</div></div>
+    <div class="st" id="st3"><div class="sdot" id="sd3">3</div><div class="slbl">Log<br>Analyser</div></div>
+    <div class="st" id="st4"><div class="sdot" id="sd4">4</div><div class="slbl">Schema<br>Comparator</div></div>
+    <div class="st" id="st5"><div class="sdot" id="sd5">5</div><div class="slbl">LLM<br>Synthesis</div></div>
+    <div class="st" id="st6"><div class="sdot" id="sd6">6</div><div class="slbl">Tests<br>Run</div></div>
+  </div>
+
+  <!-- Tool cards -->
+  <div class="tg">
+    <div class="tc" id="tc-sql">
+      <div class="tn">🗄️ SQL Validator <span class="ts idle" id="ts-sql">IDLE</span></div>
+      <div class="tm">Source rows: <b id="m-src">—</b></div>
+      <div class="tm">Target rows: <b id="m-tgt">—</b></div>
+      <div class="tm">Row drop: <b id="m-drop">—</b></div>
+      <div class="tm">Null rate (cust_id): <b id="m-null">—</b></div>
+    </div>
+    <div class="tc" id="tc-log">
+      <div class="tn">📋 Log Analyser <span class="ts idle" id="ts-log">IDLE</span></div>
+      <div class="tm">Errors: <b id="m-err">—</b></div>
+      <div class="tm">Warnings: <b id="m-warn">—</b></div>
+      <div class="tm">Kafka lag: <b id="m-lag">—</b></div>
+    </div>
+    <div class="tc" id="tc-sch">
+      <div class="tn">🔍 Schema Comparator <span class="ts idle" id="ts-sch">IDLE</span></div>
+      <div class="tm">Added cols: <b id="m-add">—</b></div>
+      <div class="tm">Removed cols: <b id="m-rm">—</b></div>
+      <div class="tm">Renamed cols: <b id="m-ren">—</b></div>
+      <div class="tm">Type changes: <b id="m-typ">—</b></div>
+    </div>
+  </div>
+
+  <div class="rg">
+    <!-- Agent log -->
+    <div class="panel">
+      <div class="ph">🧠 Agent Reasoning Log</div>
+      <div class="pb">
+        <div class="alog" id="alog">
+          <div class="idle"><div class="ii">🤖</div><p>Agent reasoning will appear here<br>once you click Analyze Pipeline.</p></div>
+        </div>
+      </div>
+    </div>
+    <!-- Verdict -->
+    <div>
+      <div class="vwrap" id="vwrap">
+        <div class="vc" id="vc">
+          <div class="vh">
+            <div class="vem" id="vem"></div>
+            <div><div class="vl" id="vl"></div><div class="vsub" id="vsub"></div></div>
+          </div>
+          <div class="vr" id="vr"></div>
+          <ul class="vd" id="vd"></ul>
+          <div class="va" id="va"></div>
+          <div class="vconf">Confidence: <span id="vcp"></span>
+            <div class="cbar"><div class="cfill" id="cf"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="twrap" id="twrap">
+        <div class="panel">
+          <div class="ph" id="tph">🧪 Test Results</div>
+          <div class="pb">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <span class="fwtag" id="fwtag"></span>
+              <span style="font-size:.78rem;font-weight:600;color:var(--gn)" id="tpass"></span>
+              <span style="font-size:.78rem;font-weight:600;color:var(--rd)" id="tfail"></span>
+            </div>
+            <div id="tclist"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<footer>
+  <span>🤖 AI QA Agent</span>
+  <span style="color:var(--b2)">·</span>
+  <span>Built with Claude API · Robot Framework · pytest · n8n</span>
+  <div class="footer-right">
+    <a href="https://github.com/hpk369/ai-qa-agent" target="_blank">GitHub →</a>
+  </div>
+</footer>
+
+<input type="file" class="hidden" id="up-source">
+<input type="file" class="hidden" id="up-target">
+<input type="file" class="hidden" id="up-log">
+<input type="file" class="hidden" id="up-schema">
+
+<script>
+// ─── DEFAULT FILE DATA ──────────────────────────────────────────────────────
+
+const SRC_HDR = 'transaction_id,customer_id,account_balance,amount,transaction_date,status';
+const SRC_ROWS = [
+  'TXN_000001,CUST_00142,8423.50,145.00,2026-05-01 08:12:33,SETTLED',
+  'TXN_000002,CUST_00891,2150.75,89.99,2026-05-01 08:34:17,SETTLED',
+  'TXN_000003,CUST_00234,15670.20,320.00,2026-05-01 09:02:45,SETTLED',
+  'TXN_000004,CUST_00567,430.10,22.50,2026-05-01 09:15:22,PENDING',
+  'TXN_000005,CUST_00789,7820.00,500.00,2026-05-01 09:28:11,SETTLED',
+  'TXN_000006,CUST_00321,3250.80,175.25,2026-05-01 09:44:58,SETTLED',
+  'TXN_000007,CUST_00654,12100.50,89.00,2026-05-01 10:01:33,SETTLED',
+  'TXN_000008,CUST_00112,980.25,45.00,2026-05-01 10:18:07,FAILED',
+  'TXN_000009,CUST_00445,5600.00,210.75,2026-05-01 10:32:44,SETTLED',
+  'TXN_000010,CUST_00778,19240.30,750.00,2026-05-01 10:47:19,SETTLED',
+  'TXN_000011,CUST_00223,2880.45,130.00,2026-05-01 11:03:56,SETTLED',
+  'TXN_000012,CUST_00556,7115.90,95.50,2026-05-01 11:22:31,PENDING',
+  'TXN_000013,CUST_00889,4200.00,280.00,2026-05-01 11:38:08,SETTLED',
+  'TXN_000014,CUST_00134,850.75,38.25,2026-05-01 11:54:45,SETTLED',
+  'TXN_000015,CUST_00467,11450.20,625.00,2026-05-01 12:08:22,SETTLED',
+  'TXN_000016,CUST_00700,6390.60,185.00,2026-05-01 12:23:59,SETTLED',
+  'TXN_000017,CUST_00033,3100.40,112.50,2026-05-01 12:42:36,SETTLED',
+  'TXN_000018,CUST_00366,8975.15,410.00,2026-05-01 12:59:13,SETTLED',
+  'TXN_000019,CUST_00699,1450.80,67.75,2026-05-01 13:14:50,FAILED',
+  'TXN_000020,CUST_00932,22100.00,1200.00,2026-05-01 13:31:27,SETTLED',
+  'TXN_000021,CUST_00165,5890.35,245.00,2026-05-01 13:48:04,SETTLED',
+  'TXN_000022,CUST_00498,9670.70,380.00,2026-05-01 14:02:41,SETTLED',
+  'TXN_000023,CUST_00731,3340.25,155.00,2026-05-01 14:19:18,SETTLED',
+  'TXN_000024,CUST_00064,14820.80,875.50,2026-05-01 14:35:55,SETTLED',
+  'TXN_000025,CUST_00397,6780.45,290.00,2026-05-01 14:52:32,SETTLED',
+];
+
+// Target variants
+const TGT_CLEAN   = [SRC_HDR, ...SRC_ROWS].join('\n');
+const TGT_DROP    = [SRC_HDR, ...SRC_ROWS.slice(0,15)].join('\n');
+const TGT_NULLS   = [SRC_HDR, ...SRC_ROWS.map((r,i)=> i%3===0 ? r.replace(/,CUST_\d+,/,`,,`) : r)].join('\n');
+
+// Logs
+const LOG_CLEAN = `2026-05-01 14:00:00 INFO  SparkContext: Running Spark 3.4.1
+2026-05-01 14:00:03 INFO  CustomerTransformJob: Starting pipeline run run-abc-001
+2026-05-01 14:00:05 INFO  KafkaConsumer[group=qa-pipeline]: Connected to broker kafka:9092
+2026-05-01 14:00:07 INFO  KafkaConsumer[group=qa-pipeline]: Consumer group lag: 0 messages
+2026-05-01 14:00:09 INFO  CustomerTransformStep: Reading 100,000 rows from src.transactions
+2026-05-01 14:01:23 INFO  CustomerTransformStep: Transformations applied to 100,000 rows
+2026-05-01 14:01:25 INFO  DataQualityCheck: Row count PASSED (100000 → 100000, 0.0% drop)
+2026-05-01 14:01:27 INFO  DataQualityCheck: Null rate PASSED (customer_id: 0.0%)
+2026-05-01 14:01:28 INFO  SchemaValidator: Schema match CONFIRMED (6 columns, 0 changes)
+2026-05-01 14:01:30 INFO  CustomerTransformJob: Pipeline COMPLETED successfully in 90s`;
+
+const LOG_DROP = `2026-05-01 14:00:00 INFO  SparkContext: Running Spark 3.4.1
+2026-05-01 14:00:03 INFO  CustomerTransformJob: Starting pipeline run run-xyz-002
+2026-05-01 14:00:05 INFO  KafkaConsumer[group=qa-pipeline]: Connected to broker kafka:9092
+2026-05-01 14:00:07 INFO  KafkaConsumer[group=qa-pipeline]: Consumer group lag: 0 messages
+2026-05-01 14:00:09 INFO  CustomerTransformStep: Reading 100,000 rows from src.transactions
+2026-05-01 14:00:35 WARN  CustomerTransformStep: Partition skew on partition[0] — executor memory 85%
+2026-05-01 14:00:37 WARN  CustomerTransformStep: Partition skew on partition[1]
+2026-05-01 14:00:39 WARN  CustomerTransformStep: Partition skew on partition[2]
+2026-05-01 14:01:02 ERROR CustomerTransformStep: 40000 records dropped during deduplication stage
+2026-05-01 14:01:04 WARN  DataQualityCheck: Row count FAILED (100000 → 60000, 40.0% drop)
+2026-05-01 14:01:06 ERROR DataQualityCheck: Row drop threshold exceeded (40.0% > 5.0%)
+2026-05-01 14:01:08 INFO  CustomerTransformJob: Pipeline COMPLETED with errors in 68s`;
+
+const LOG_DRIFT = `2026-05-01 14:00:00 INFO  SparkContext: Running Spark 3.4.1
+2026-05-01 14:00:03 INFO  CustomerTransformJob: Starting pipeline run run-def-003
+2026-05-01 14:00:05 INFO  KafkaConsumer[group=qa-pipeline]: Connected to broker kafka:9092
+2026-05-01 14:00:07 INFO  KafkaConsumer[group=qa-pipeline]: Consumer group lag: 0 messages
+2026-05-01 14:00:09 INFO  CustomerTransformStep: Reading 100,000 rows from src.transactions
+2026-05-01 14:00:52 ERROR SchemaValidator: Column 'account_balance' not found in tgt.transactions
+2026-05-01 14:00:54 WARN  SchemaValidator: Validation skipped for partition[0] — partial schema match
+2026-05-01 14:00:56 WARN  SchemaValidator: Validation skipped for partition[1]
+2026-05-01 14:00:58 WARN  SchemaValidator: Validation skipped for partition[2]
+2026-05-01 14:01:00 INFO  CustomerTransformJob: Pipeline COMPLETED with schema warnings in 60s`;
+
+const LOG_NULL = `2026-05-01 14:00:00 INFO  SparkContext: Running Spark 3.4.1
+2026-05-01 14:00:03 INFO  CustomerTransformJob: Starting pipeline run run-ghi-004
+2026-05-01 14:00:05 INFO  KafkaConsumer[group=qa-pipeline]: Connected to broker kafka:9092
+2026-05-01 14:00:07 INFO  KafkaConsumer[group=qa-pipeline]: Consumer group lag: 0 messages
+2026-05-01 14:00:09 INFO  CustomerTransformStep: Reading 100,000 rows from src.transactions
+2026-05-01 14:00:45 WARN  CustomerTransformStep: Null values in customer_id (batch 1 of 10)
+2026-05-01 14:00:47 WARN  CustomerTransformStep: Null values in customer_id (batch 2 of 10)
+2026-05-01 14:00:49 WARN  CustomerTransformStep: Null values in customer_id (batch 3 of 10)
+2026-05-01 14:01:02 ERROR CustomerTransformStep: NullPointerException in CustomerTransformStep at line 84
+2026-05-01 14:01:04 WARN  DataQualityCheck: Null rate for customer_id: 36.0% (threshold 5%)
+2026-05-01 14:01:06 ERROR CustomerTransformStep: Null propagation detected in customer_id join key
+2026-05-01 14:01:10 INFO  CustomerTransformJob: Pipeline COMPLETED with errors in 70s`;
+
+const LOG_LAG = `2026-05-01 14:00:00 INFO  SparkContext: Running Spark 3.4.1
+2026-05-01 14:00:03 INFO  CustomerTransformJob: Starting pipeline run run-jkl-005
+2026-05-01 14:00:05 INFO  KafkaConsumer[group=qa-pipeline]: Connected to broker kafka:9092
+2026-05-01 14:00:07 WARN  KafkaConsumer[group=qa-pipeline]: Consumer group lag growing: lag 3200 messages
+2026-05-01 14:00:09 INFO  CustomerTransformStep: Reading 100,000 rows from src.transactions
+2026-05-01 14:00:30 WARN  KafkaConsumer[group=qa-pipeline]: Consumer group lag: 8500 messages
+2026-05-01 14:00:45 WARN  KafkaConsumer[group=qa-pipeline]: Back-pressure detected — consumer falling behind
+2026-05-01 14:01:00 ERROR KafkaConsumer[group=qa-pipeline]: Lag threshold exceeded — current lag: 15000 messages
+2026-05-01 14:01:05 WARN  KafkaConsumer[group=qa-pipeline]: Throughput reduced by back-pressure
+2026-05-01 14:01:30 INFO  CustomerTransformJob: Pipeline COMPLETED with Kafka warnings in 90s`;
+
+const SCH_SRC = JSON.stringify({"transaction_id":"UUID","customer_id":"VARCHAR","account_balance":"NUMERIC","amount":"NUMERIC","transaction_date":"TIMESTAMP","status":"VARCHAR"}, null, 2);
+const SCH_TGT_CLEAN  = SCH_SRC;
+const SCH_TGT_DRIFT  = JSON.stringify({"transaction_id":"UUID","customer_id":"VARCHAR","bal":"NUMERIC","amount":"NUMERIC","transaction_date":"TIMESTAMP","status":"VARCHAR"}, null, 2);
+
+// ─── SCENARIO CONFIG ────────────────────────────────────────────────────────
+const SCENARIOS = {
+  none:        { tgtCsv:TGT_CLEAN, log:LOG_CLEAN, schTgt:SCH_TGT_CLEAN, tgtName:'target_transactions_clean.csv',   logName:'spark_run_clean.log',        schemaDrift:false },
+  row_drop:    { tgtCsv:TGT_DROP,  log:LOG_DROP,  schTgt:SCH_TGT_CLEAN, tgtName:'target_transactions_row_drop.csv',logName:'spark_run_row_drop.log',     schemaDrift:false },
+  schema_drift:{ tgtCsv:TGT_CLEAN, log:LOG_DRIFT, schTgt:SCH_TGT_DRIFT, tgtName:'target_transactions_clean.csv',   logName:'spark_run_schema_drift.log', schemaDrift:true  },
+  null_spike:  { tgtCsv:TGT_NULLS, log:LOG_NULL,  schTgt:SCH_TGT_CLEAN, tgtName:'target_transactions_null_spike.csv',logName:'spark_run_null_spike.log', schemaDrift:false },
+  latency:     { tgtCsv:TGT_CLEAN, log:LOG_LAG,   schTgt:SCH_TGT_CLEAN, tgtName:'target_transactions_clean.csv',   logName:'spark_run_latency.log',      schemaDrift:false },
+};
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+const st = {
+  srcCsv: [SRC_HDR,...SRC_ROWS].join('\n'),
+  tgtCsv: TGT_CLEAN,
+  log:    LOG_CLEAN,
+  schSrc: SCH_SRC,
+  schTgt: SCH_TGT_CLEAN,
+  mode:   'none',
+};
+let running=false, timers=[];
+const previews = {};
+const explains = {};
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+function init() {
+  updateFileMetadata();
+  // init schema preview content
+  document.getElementById('sj-src').textContent = SCH_SRC;
+  document.getElementById('sj-tgt').textContent = SCH_TGT_CLEAN;
+}
+
+function updateFileMetadata() {
+  const sc = SCENARIOS[st.mode];
+  const tgtRows = sc.tgtCsv.trim().split('\n').length - 1;
+  const srcRows = SRC_ROWS.length;
+  const dropPct = Math.max(0,((srcRows-tgtRows)/srcRows*100)).toFixed(0);
+
+  // Target
+  document.getElementById('fn-target').textContent = sc.tgtName;
+  document.getElementById('fst-target').textContent = tgtRows + ' rows';
+  document.getElementById('fi-tgt-rows').textContent = tgtRows;
+  document.getElementById('fi-tgt-drop').textContent = dropPct + '%';
+
+  // Null preview
+  const tgtParsed = parseCSV(sc.tgtCsv);
+  const custNulls = tgtParsed.rows.filter(r=>!r.customer_id||r.customer_id==='').length;
+  document.getElementById('fi-tgt-nulls').textContent = ((custNulls/tgtParsed.rows.length)*100).toFixed(0)+'%';
+
+  // Log
+  const lines = sc.log.split('\n');
+  const errCnt = lines.filter(l=>/\bERROR\b/i.test(l)).length;
+  const warnCnt = lines.filter(l=>/\bWARN\b/i.test(l)).length;
+  const lagM = sc.log.match(/lag[^0-9]*?(\d{4,})/i);
+  const lag = lagM ? parseInt(lagM[1]) : 0;
+  document.getElementById('fn-log').textContent = sc.logName;
+  document.getElementById('fst-log').textContent = lines.length + ' lines';
+  document.getElementById('fi-log-err').textContent = errCnt;
+  document.getElementById('fi-log-warn').textContent = warnCnt;
+  document.getElementById('fi-log-lag').textContent = lag > 0 ? lag.toLocaleString() : '0';
+
+  // Schema
+  const drift = sc.schemaDrift;
+  document.getElementById('fst-schema').textContent = drift ? 'DRIFT' : 'MATCH';
+  document.getElementById('fst-schema').style.background = drift ? 'var(--rd2)' : 'var(--am3)';
+  document.getElementById('fst-schema').style.color = drift ? 'var(--rd)' : 'var(--am)';
+  document.getElementById('fst-schema').style.border = drift ? '1px solid rgba(239,68,68,.3)' : '1px solid var(--amg)';
+  document.getElementById('fi-sch-drift').textContent = drift ? 'renamed col' : 'none';
+  document.getElementById('fi-sch-drift').style.color = drift ? 'var(--rd)' : '';
+
+  // Update schema preview
+  document.getElementById('sj-tgt').textContent = sc.schTgt;
+
+  // Update previews if open
+  if (document.getElementById('prev-target').style.display !== 'none') {
+    document.getElementById('prev-target').textContent = sc.tgtCsv.split('\n').slice(0,12).join('\n') + (sc.tgtCsv.split('\n').length > 12 ? '\n…' : '');
+  }
+  if (document.getElementById('prev-log').style.display !== 'none') {
+    document.getElementById('prev-log').textContent = sc.log;
+  }
+}
+
+function selectScenario(mode, btn) {
+  if (running) return;
+  st.mode = mode;
+  const sc = SCENARIOS[mode];
+  st.tgtCsv = sc.tgtCsv;
+  st.log = sc.log;
+  st.schTgt = sc.schTgt;
+
+  document.querySelectorAll('.scen').forEach(b => b.classList.remove('active','fail'));
+  btn.classList.add('active');
+  if (mode !== 'none') btn.classList.add('fail');
+
+  updateFileMetadata();
+  resetResults();
+}
+
+// ─── PREVIEW / EXPLAIN TOGGLES ───────────────────────────────────────────────
+function togglePreview(key) {
+  const el = document.getElementById('prev-'+key);
+  if (key === 'schema') {
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    const content = key === 'source' ? st.srcCsv : key === 'target' ? st.tgtCsv : st.log;
+    const lines = content.split('\n');
+    el.textContent = lines.slice(0, 14).join('\n') + (lines.length > 14 ? '\n…' : '');
+  }
+}
+function toggleExplain(key) {
+  const el = document.getElementById('exp-'+key);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ─── FILE UPLOAD ─────────────────────────────────────────────────────────────
+function handleUpload(key, input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    if (key === 'source') { st.srcCsv = text; document.getElementById('fst-source').textContent = (parseCSV(text).rows.length) + ' rows'; }
+    if (key === 'target') { st.tgtCsv = text; }
+    if (key === 'log')    { st.log = text; }
+    if (key === 'schema') {
+      try {
+        const j = JSON.parse(text);
+        if (j.source && j.target) { st.schSrc = JSON.stringify(j.source,null,2); st.schTgt = JSON.stringify(j.target,null,2); }
+        else { st.schTgt = text; }
+        document.getElementById('sj-tgt').textContent = st.schTgt;
+      } catch(e) { alert('Invalid JSON schema file'); return; }
+    }
+    document.getElementById('fc-'+key).classList.add('loaded');
+    updateFileMetadata();
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ─── DOWNLOAD ────────────────────────────────────────────────────────────────
+function downloadFile(key) {
+  const sc = SCENARIOS[st.mode];
+  const map = {
+    source: { content:[SRC_HDR,...SRC_ROWS].join('\n'), name:'source_transactions.csv', type:'text/csv' },
+    target: { content:sc.tgtCsv, name:sc.tgtName, type:'text/csv' },
+    log:    { content:sc.log, name:sc.logName, type:'text/plain' },
+    schema: { content:JSON.stringify({source:JSON.parse(SCH_SRC),target:JSON.parse(sc.schTgt)},null,2), name:'schema_definitions.json', type:'application/json' },
+  };
+  const f = map[key];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([f.content], {type:f.type}));
+  a.download = f.name; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ─── ANALYSIS FUNCTIONS ──────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n').filter(l=>l.trim());
+  const headers = lines[0].split(',').map(h=>h.trim());
+  const rows = lines.slice(1).map(l => {
+    const v = l.split(',');
+    return Object.fromEntries(headers.map((h,i)=>[h,(v[i]||'').trim()]));
+  });
+  return {headers, rows};
+}
+
+function sqlValidator(srcCsv, tgtCsv) {
+  const src = parseCSV(srcCsv), tgt = parseCSV(tgtCsv);
+  const drop = Math.max(0, (src.rows.length - tgt.rows.length) / src.rows.length * 100);
+  const nullRates = {};
+  tgt.headers.forEach(h => {
+    const n = tgt.rows.filter(r => !r[h] || r[h]==='').length;
+    nullRates[h] = n / tgt.rows.length;
+  });
+  const ids = tgt.rows.map(r => r[tgt.headers[0]]);
+  const dupes = ids.length - new Set(ids).size;
+  const issues = [];
+  if (drop > 5) issues.push(`Row drop ${drop.toFixed(1)}%`);
+  Object.entries(nullRates).forEach(([col,rate]) => { if (rate > 0.05) issues.push(`${col} null rate ${(rate*100).toFixed(0)}%`); });
+  if (dupes > 0) issues.push(`Duplicate rows: ${dupes}`);
+  return { source_count:src.rows.length, target_count:tgt.rows.length, row_drop_pct:parseFloat(drop.toFixed(2)), null_rates:nullRates, duplicate_count:dupes, status:issues.length?'FAIL':'PASS', issues };
+}
+
+function logAnalyser(logText) {
+  const lines = logText.split('\n');
+  const errors = lines.filter(l=>/\bERROR\b/i.test(l)).map(l=>l.trim());
+  const warns  = lines.filter(l=>/\bWARN\b/i.test(l)).map(l=>l.trim());
+  let lag = 0;
+  lines.forEach(l => { const m=l.match(/lag[^0-9]*?(\d{3,})/i); if(m) lag=Math.max(lag,parseInt(m[1])); });
+  const issues = [...errors.slice(0,3)];
+  if (lag > 10000) issues.push(`Kafka consumer lag: ${lag.toLocaleString()} messages`);
+  return { error_count:errors.length, warn_count:warns.length, errors:errors.slice(0,5), kafka_lag:lag, status:issues.length?'FAIL':'PASS', issues };
+}
+
+function schemaComparator(srcJson, tgtJson) {
+  let src, tgt;
+  try { src=JSON.parse(srcJson); tgt=JSON.parse(tgtJson); } catch(e) { return {status:'ERROR',issues:['Invalid JSON'],columns_added:[],columns_removed:[],columns_renamed:[],type_changes:[]}; }
+  const srcK=Object.keys(src), tgtK=Object.keys(tgt);
+  const added=tgtK.filter(c=>!srcK.includes(c));
+  const removed=srcK.filter(c=>!tgtK.includes(c));
+  const renamed=[], umRm=[...removed], umAdd=[...added];
+  [...umRm].forEach(rem => { const m=umAdd.find(a=>tgt[a]===src[rem]); if(m){renamed.push({from:rem,to:m});umRm.splice(umRm.indexOf(rem),1);umAdd.splice(umAdd.indexOf(m),1);} });
+  const typeChanges=srcK.filter(c=>tgtK.includes(c)&&src[c]!==tgt[c]).map(c=>({column:c,source_type:src[c],target_type:tgt[c]}));
+  const issues=[...renamed.map(r=>`Column renamed: ${r.from} → ${r.to}`),...umRm.map(c=>`Column removed: ${c}`),...umAdd.map(c=>`Column added: ${c}`),...typeChanges.map(tc=>`Type change: ${tc.column} (${tc.source_type} → ${tc.target_type})`)];
+  return {columns_added:added,columns_removed:removed,columns_renamed:renamed,type_changes:typeChanges,status:issues.length?'FAIL':'PASS',issues};
+}
+
+function synthesize(sql, log, sch) {
+  const all=[...sql.issues,...log.issues,...sch.issues];
+  const fail=all.length>0;
+  let root='All QA checks passed — pipeline is healthy.',action='No action required. Pipeline is operating within all tolerance thresholds.',conf=0.98;
+  if (sch.issues.length>0) {
+    root=`Schema drift detected: ${sch.issues[0]} — likely a migration script applied to the wrong environment.`;
+    action='Revert or re-apply the schema migration to align the target table DDL with the source contract.';conf=0.97;
+  } else if (sql.issues.some(i=>i.toLowerCase().includes('null'))) {
+    const ni=sql.issues.find(i=>i.toLowerCase().includes('null'));
+    root=`Null spike: ${ni} — NullPointerException in CustomerTransformStep suggests a broken join key.`;
+    action='Fix the null-safe join in CustomerTransformStep; add a NOT NULL constraint to the affected column.';conf=0.96;
+  } else if (sql.issues.some(i=>i.includes('Row drop'))) {
+    root=`Significant row loss: ${sql.issues.find(i=>i.includes('Row drop'))} — likely partition skew or silent deduplication error.`;
+    action='Inspect the Spark deduplication step and check partition skew; increase executor memory.';conf=0.95;
+  } else if (log.kafka_lag>10000) {
+    root=`Kafka consumer lag of ${log.kafka_lag.toLocaleString()} messages exceeds the 10,000 threshold — consumer group is falling behind.`;
+    action='Scale out the Kafka consumer group or investigate back-pressure in the downstream Spark streaming job.';conf=0.93;
+  } else if (log.errors.length>0) {
+    root=`Spark errors detected: ${log.errors[0].replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ERROR\s+/,'').slice(0,100)}`;
+    action='Review Spark executor logs and resolve the reported errors before re-running the pipeline.';conf=0.92;
+  }
+  return {verdict:fail?'FAIL':'PASS',root_cause:root,details:all,recommended_action:action,confidence:conf,test_framework:fail?'pytest':'Robot Framework'};
+}
+
+function genTests(verdict, sql, log, sch) {
+  if (verdict.verdict==='PASS') return {framework:'Robot Framework',passed:6,failed:0,cases:[
+    {n:'Tool Server Is Healthy',p:true},{n:'Pipeline Run Completes Successfully',p:true},
+    {n:'Schema Should Match Source',p:true},{n:'Logs Should Contain No Errors',p:true},
+    {n:'Row Count Within Tolerance',p:true},{n:'Null Rate Within Tolerance',p:true}
+  ]};
+  const hasRD=sql.issues.some(i=>i.includes('Row drop'));
+  const hasNS=sql.issues.some(i=>i.includes('null'));
+  const hasSD=sch.issues.length>0;
+  const hasLE=log.errors.length>0;
+  const hasLag=log.kafka_lag>10000;
+  const cases=[
+    {n:'test_clean_run_passes',p:false},
+    {n:'test_row_drop_detected',p:hasRD},
+    {n:'test_null_spike_detected',p:hasNS},
+    {n:'test_renamed_column_detected',p:hasSD},
+    {n:'test_kafka_lag_detected',p:hasLag},
+    {n:'test_errors_detected',p:hasLE},
+    {n:'test_mock_clean_passes',p:false},
+    {n:'test_all_pass_on_none',p:false},
+  ];
+  return {framework:'pytest',passed:cases.filter(c=>c.p).length,failed:cases.filter(c=>!c.p).length,cases};
+}
+
+// ─── UI HELPERS ──────────────────────────────────────────────────────────────
+function ts() { return new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function fakeId() { return 'toolu_'+Math.random().toString(36).slice(2,10); }
+
+function alog(text, cls='cd') {
+  const el=document.getElementById('alog');
+  if (el.querySelector('.idle')) el.innerHTML='';
+  const d=document.createElement('div'); d.className='lr';
+  d.innerHTML=`<span class="lts">${ts()}</span><span class="${cls}">${text}</span>`;
+  el.appendChild(d); el.scrollTop=el.scrollHeight;
+}
+
+function setStep(n, state) {
+  const el=document.getElementById('st'+n), dot=document.getElementById('sd'+n);
+  el.className='st '+state;
+  dot.textContent = state==='done'?'✓':state==='fail'?'✗':n;
+  if (n>1) {
+    const prev=document.getElementById('st'+(n-1));
+    if (state==='done'&&prev.classList.contains('done')) prev.classList.contains('done');
+    // update connector
+    document.getElementById('st'+(n-1)).classList.toggle('done', state==='done'||state==='active'||state==='fail');
+  }
+}
+
+function setTool(which, state, data) {
+  const card=document.getElementById('tc-'+which), badge=document.getElementById('ts-'+which);
+  card.className='tc '+state; badge.className='ts '+state; badge.textContent=state.toUpperCase();
+  if (which==='sql'&&data) {
+    document.getElementById('m-src').textContent=data.source_count?.toLocaleString();
+    document.getElementById('m-tgt').textContent=data.target_count?.toLocaleString();
+    document.getElementById('m-drop').textContent=data.row_drop_pct+'%';
+    document.getElementById('m-null').textContent=((data.null_rates?.customer_id||0)*100).toFixed(0)+'%';
+  }
+  if (which==='log'&&data) {
+    document.getElementById('m-err').textContent=data.error_count;
+    document.getElementById('m-warn').textContent=data.warn_count;
+    document.getElementById('m-lag').textContent=data.kafka_lag?.toLocaleString();
+  }
+  if (which==='sch'&&data) {
+    document.getElementById('m-add').textContent=data.columns_added?.length;
+    document.getElementById('m-rm').textContent=data.columns_removed?.length;
+    document.getElementById('m-ren').textContent=data.columns_renamed?.length;
+    document.getElementById('m-typ').textContent=data.type_changes?.length;
+  }
+}
+
+function showVerdict(v) {
+  const ok=v.verdict==='PASS';
+  const vc=document.getElementById('vc'); vc.className='vc '+(ok?'pass':'fail');
+  document.getElementById('vem').textContent=ok?'✅':'❌';
+  const vl=document.getElementById('vl'); vl.textContent=v.verdict; vl.className='vl '+(ok?'pass':'fail');
+  document.getElementById('vsub').textContent=`Routed to: ${v.test_framework}  ·  Confidence: ${(v.confidence*100).toFixed(0)}%`;
+  document.getElementById('vr').textContent='🔎 '+v.root_cause;
+  document.getElementById('vd').innerHTML=v.details.map(d=>`<li>${d}</li>`).join('');
+  document.getElementById('va').innerHTML=`💡 <strong>Recommended:</strong> ${v.recommended_action}`;
+  document.getElementById('vcp').textContent=(v.confidence*100).toFixed(0)+'%';
+  const cf=document.getElementById('cf'); cf.style.background=ok?'var(--gn)':'var(--rd)'; cf.style.width='0%';
+  document.getElementById('vwrap').style.display='block';
+  setTimeout(()=>cf.style.width=(v.confidence*100)+'%',60);
+}
+
+function showTests(td) {
+  const isR=td.framework==='Robot Framework';
+  document.getElementById('tph').textContent=(isR?'🤖':'🧪')+' Test Results — '+td.framework;
+  const badge=document.getElementById('fwtag'); badge.textContent=td.framework; badge.className='fwtag '+(isR?'robot':'pytest');
+  document.getElementById('tpass').textContent=`✓ ${td.passed} passed`;
+  document.getElementById('tfail').textContent=`✗ ${td.failed} failed`;
+  const list=document.getElementById('tclist'); list.innerHTML='';
+  td.cases.forEach(c=>{
+    const d=document.createElement('div'); d.className='tcase';
+    d.innerHTML=`<span class="tico">${c.p?'✅':'❌'}</span><span style="color:${c.p?'var(--tx)':'var(--rd)'}">${c.n}</span>`;
+    list.appendChild(d);
+  });
+  document.getElementById('twrap').style.display='block';
+}
+
+function resetResults() {
+  timers.forEach(clearTimeout); timers=[];
+  document.getElementById('alog').innerHTML='<div class="idle"><div class="ii">🤖</div><p>Agent reasoning will appear here<br>once you click Analyze Pipeline.</p></div>';
+  document.getElementById('vwrap').style.display='none';
+  document.getElementById('twrap').style.display='none';
+  ['sql','log','sch'].forEach(k=>{
+    document.getElementById('tc-'+k).className='tc';
+    const b=document.getElementById('ts-'+k); b.className='ts idle'; b.textContent='IDLE';
+  });
+  ['m-src','m-tgt','m-drop','m-null','m-err','m-warn','m-lag','m-add','m-rm','m-ren','m-typ'].forEach(id=>{ const e=document.getElementById(id); if(e) e.textContent='—'; });
+  for(let i=1;i<=6;i++){const e=document.getElementById('st'+i);if(e){e.className='st';document.getElementById('sd'+i).textContent=i;}}
+}
+
+// ─── MAIN RUN ─────────────────────────────────────────────────────────────────
+function later(fn,ms){timers.push(setTimeout(fn,ms));}
+
+function runAnalysis() {
+  if (running) return;
+  running=true; resetResults();
+  document.getElementById('runBtn').disabled=true;
+  document.getElementById('spinner').style.display='block';
+  document.getElementById('btnTxt').textContent='Analyzing…';
+  document.getElementById('results').style.display='block';
+  document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+
+  const srcCsv=st.srcCsv, tgtCsv=st.tgtCsv, logText=st.log, schSrc=st.schSrc, schTgt=SCENARIOS[st.mode].schTgt;
+  let t=0;
+
+  later(()=>{
+    setStep(1,'done');
+    alog(`Files loaded — src:${parseCSV(srcCsv).rows.length}r tgt:${parseCSV(tgtCsv).rows.length}r log:${logText.split('\n').length}l`,'ci');
+    setStep(2,'active');
+    alog(`→ tool_use [${fakeId()}]: sql_validator({"source_table":"src.transactions","target_table":"tgt.transactions"})`,'cp');
+    setTool('sql','calling',null);
+  }, t+=400);
+
+  later(()=>{
+    const r=sqlValidator(srcCsv,tgtCsv);
+    setTool('sql',r.status==='PASS'?'pass':'fail',r);
+    setStep(2,'done'); setStep(3,'active');
+    const iss=r.issues.length?` — ${r.issues.join('; ')}`:'';
+    alog(`← result [sql_validator]: ${r.status}${iss}`,r.status==='PASS'?'cok':'cfl');
+    alog(`→ tool_use [${fakeId()}]: log_analyser({"log_path":"/logs/spark_run.log"})`,'cp');
+    setTool('log','calling',null);
+  }, t+=1100);
+
+  later(()=>{
+    const r=logAnalyser(logText);
+    setTool('log',r.status==='PASS'?'pass':'fail',r);
+    setStep(3,'done'); setStep(4,'active');
+    const iss=r.issues.length?` — ${r.issues[0].replace(/^\S+ \S+ \w+\s+/,'').slice(0,80)}`:'';
+    alog(`← result [log_analyser]: ${r.status}${iss}`,r.status==='PASS'?'cok':'cfl');
+    alog(`→ tool_use [${fakeId()}]: schema_comparator({"source_table":"src.transactions","target_table":"tgt.transactions"})`,'cp');
+    setTool('sch','calling',null);
+  }, t+=950);
+
+  later(()=>{
+    const r=schemaComparator(schSrc,schTgt);
+    setTool('sch',r.status==='PASS'?'pass':'fail',r);
+    setStep(4,'done'); setStep(5,'active');
+    const iss=r.issues.length?` — ${r.issues.join('; ')}`:'';
+    alog(`← result [schema_comparator]: ${r.status}${iss}`,r.status==='PASS'?'cok':'cfl');
+    alog('⟳ All tools returned — synthesising root cause and forming verdict…','cs');
+  }, t+=950);
+
+  later(()=>{
+    const sql=sqlValidator(srcCsv,tgtCsv);
+    const log=logAnalyser(logText);
+    const sch=schemaComparator(schSrc,schTgt);
+    const v=synthesize(sql,log,sch);
+    const td=genTests(v,sql,log,sch);
+
+    setStep(5,'done');
+    alog(`✦ VERDICT: ${v.verdict} — ${v.root_cause}`,v.verdict==='PASS'?'cok':'cfl');
+    showVerdict(v);
+
+    setStep(6,'active');
+    alog(`→ Invoking ${v.test_framework} test suite…`,'ci');
+
+    later(()=>{
+      setStep(6,td.failed===0?'done':'fail');
+      alog(`← ${v.test_framework}: ${td.passed} passed / ${td.failed} failed`,td.failed===0?'cok':'cfl');
+      showTests(td);
+      alog('─── Analysis complete ───','cd');
+      document.getElementById('runBtn').disabled=false;
+      document.getElementById('spinner').style.display='none';
+      document.getElementById('btnTxt').textContent='🔍 Analyze Pipeline';
+      running=false;
+    }, 1300);
+  }, t+=1200);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
