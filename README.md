@@ -1,5 +1,7 @@
 # AI Agent QA Pipeline — n8n + Robot Framework + pytest
 
+**[▶ Live Demo](https://hpk369.github.io/ai-qa-agent/)** — interactive pipeline simulator, no setup required.
+
 An AI-powered quality assurance agent orchestrated via **n8n** that monitors a mock Big Data pipeline, reasons over tool outputs using Claude in tool-use mode, and routes to the appropriate test framework based on its verdict.
 
 ## Architecture
