@@ -1,0 +1,124 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pipeline_qa
+      POSTGRES_USER: qa_user
+      POSTGRES_PASSWORD: qa_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qa_user -d pipeline_qa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  tool_server:
+    build:
+      context: .
+      dockerfile: agent_tools/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: pipeline_qa
+      POSTGRES_USER: qa_user
+      POSTGRES_PASSWORD: qa_pass
+      TOOL_SERVER_HOST: 0.0.0.0
+      TOOL_SERVER_PORT: 8000
+      INJECT_FAILURE: ${INJECT_FAILURE:-none}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agent_server:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    depends_on:
+      tool_server:
+        condition: service_healthy
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      TOOL_SERVER_HOST: tool_server
+      TOOL_SERVER_PORT: 8000
+      AGENT_SERVER_HOST: 0.0.0.0
+      AGENT_SERVER_PORT: 8001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    depends_on:
+      agent_server:
+        condition: service_healthy
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-password}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      JENKINS_WEBHOOK_URL: ${JENKINS_WEBHOOK_URL:-}
+      JENKINS_TOKEN: ${JENKINS_TOKEN:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n_workflows:/workflows
+      - ./reports:/qa/reports
+      - ./tests:/qa/tests
+
+volumes:
+  postgres_data:
+  n8n_data:

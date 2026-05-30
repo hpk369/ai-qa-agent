@@ -1,0 +1,274 @@
+{
+  "name": "QA Agent Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pipeline-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-trigger",
+      "name": "Pipeline Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://agent_server:8001/agent/run",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "run_id",
+              "value": "={{ $json.run_id }}"
+            },
+            {
+              "name": "pipeline",
+              "value": "={{ $json.pipeline }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "source_table",
+              "value": "={{ $json.source_table }}"
+            },
+            {
+              "name": "target_table",
+              "value": "={{ $json.target_table }}"
+            },
+            {
+              "name": "log_path",
+              "value": "={{ $json.log_path }}"
+            },
+            {
+              "name": "failure_mode",
+              "value": "={{ $json.failure_mode }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "node-call-agent",
+      "name": "Call QA Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "condition-verdict",
+              "leftValue": "={{ $json.verdict }}",
+              "rightValue": "PASS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-check-verdict",
+      "name": "Check Verdict",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd /qa && robot --outputdir reports/robot tests/robot/acceptance.robot 2>&1; echo \"EXIT_CODE:$?\""
+      },
+      "id": "node-run-robot",
+      "name": "Run Robot Framework",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "command": "cd /qa && pytest tests/pytest/ --junitxml=reports/pytest/results.xml -v 2>&1; echo \"EXIT_CODE:$?\""
+      },
+      "id": "node-run-pytest",
+      "name": "Run pytest",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {
+        "filePath": "/qa/reports/robot/output.xml"
+      },
+      "id": "node-read-robot-report",
+      "name": "Read RF Report",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1120, 180]
+    },
+    {
+      "parameters": {
+        "filePath": "/qa/reports/pytest/results.xml"
+      },
+      "id": "node-read-pytest-report",
+      "name": "Read pytest Report",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    },
+    {
+      "parameters": {
+        "mode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "node-merge",
+      "name": "Merge Reports",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const agentResult = $('Call QA Agent').first().json;\nconst testOutput = items[0]?.json || {};\n\nconst verdict = agentResult.verdict || 'UNKNOWN';\nconst isPass = verdict === 'PASS';\nconst emoji = isPass ? '✅' : '❌';\nconst color = isPass ? 'good' : 'danger';\n\nconst summary = {\n  run_id: $('Pipeline Trigger').first().json.run_id,\n  verdict,\n  root_cause: agentResult.root_cause,\n  details: agentResult.details || [],\n  recommended_action: agentResult.recommended_action,\n  confidence: agentResult.confidence,\n  test_framework: isPass ? 'Robot Framework' : 'pytest',\n  timestamp: new Date().toISOString(),\n};\n\nconst slack_message = [\n  `${emoji} *QA Pipeline Report* — ${verdict}`,\n  `*Run ID:* ${summary.run_id}`,\n  `*Root Cause:* ${summary.root_cause}`,\n  summary.details.length > 0 ? `*Issues:*\\n${summary.details.map(d => `• ${d}`).join('\\n')}` : '',\n  `*Action:* ${summary.recommended_action}`,\n  `*Confidence:* ${(summary.confidence * 100).toFixed(0)}%`,\n  `*Tests run via:* ${summary.test_framework}`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { summary, slack_message, color, verdict } }];"
+      },
+      "id": "node-build-summary",
+      "name": "Build QA Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "webhookUri": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "text": "={{ $json.slack_message }}",
+        "otherOptions": {
+          "username": "QA Agent",
+          "icon_emoji": ":robot_face:"
+        }
+      },
+      "id": "node-slack",
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1780, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.JENKINS_WEBHOOK_URL }}",
+        "authentication": "genericCredentialType",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $env.JENKINS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.summary) }}",
+        "options": {}
+      },
+      "id": "node-jenkins",
+      "name": "Jenkins Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Build QA Summary').first().json.summary) }}"
+      },
+      "id": "node-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Pipeline Trigger": {
+      "main": [
+        [{"node": "Call QA Agent", "type": "main", "index": 0}]
+      ]
+    },
+    "Call QA Agent": {
+      "main": [
+        [{"node": "Check Verdict", "type": "main", "index": 0}]
+      ]
+    },
+    "Check Verdict": {
+      "main": [
+        [{"node": "Run Robot Framework", "type": "main", "index": 0}],
+        [{"node": "Run pytest", "type": "main", "index": 0}]
+      ]
+    },
+    "Run Robot Framework": {
+      "main": [
+        [{"node": "Read RF Report", "type": "main", "index": 0}]
+      ]
+    },
+    "Run pytest": {
+      "main": [
+        [{"node": "Read pytest Report", "type": "main", "index": 0}]
+      ]
+    },
+    "Read RF Report": {
+      "main": [
+        [{"node": "Merge Reports", "type": "main", "index": 0}]
+      ]
+    },
+    "Read pytest Report": {
+      "main": [
+        [{"node": "Merge Reports", "type": "main", "index": 1}]
+      ]
+    },
+    "Merge Reports": {
+      "main": [
+        [{"node": "Build QA Summary", "type": "main", "index": 0}]
+      ]
+    },
+    "Build QA Summary": {
+      "main": [
+        [
+          {"node": "Slack Alert", "type": "main", "index": 0},
+          {"node": "Jenkins Webhook", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Slack Alert": {
+      "main": [
+        [{"node": "Respond to Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Jenkins Webhook": {
+      "main": [
+        [{"node": "Respond to Webhook", "type": "main", "index": 1}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {}
+}
