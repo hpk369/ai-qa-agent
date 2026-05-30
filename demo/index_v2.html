@@ -169,6 +169,64 @@ hr.div{border:none;border-top:1px solid var(--b1);margin:0 20px 32px}
 .fwtag.pytest{background:var(--am3);color:var(--am);border:1px solid var(--amg)}
 .tcase{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:5px;margin-bottom:3px;font-size:.7rem;font-family:var(--mono);background:var(--s2);border:1px solid var(--b1)}
 
+/* N8N FLOW */
+.n8n-flow{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.nrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.nrow-split{justify-content:space-between}
+.narr{color:var(--b2);font-size:.9rem;flex-shrink:0}
+.nbranch-labels{display:flex;padding:2px 0;margin-top:-2px}
+.nbl{font-size:.63rem;font-weight:700;padding:2px 8px;border-radius:4px}
+.nbl.pass{color:var(--gn);background:var(--gn2)}.nbl.fail{color:var(--rd);background:var(--rd2)}
+
+.nnode{display:flex;flex-direction:column;padding:9px 13px;border-radius:8px;border:1px solid var(--b1);background:var(--s2);cursor:pointer;transition:all .18s;min-width:120px;max-width:190px}
+.nnode:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.nnode.active{box-shadow:0 0 0 2px var(--am)!important}
+.nnum{font-size:.62rem;color:var(--mu);margin-bottom:2px}
+.nname{font-size:.74rem;font-weight:700;color:var(--tx);line-height:1.2}
+.ntype{font-size:.6rem;color:var(--mu);margin-top:3px}
+
+/* node colors */
+.nnode.trigger{border-color:rgba(245,166,35,.4);background:var(--am3)}
+.nnode.trigger .ntype{color:var(--am)}
+.nnode.http{border-color:rgba(96,165,250,.3);background:var(--bl2)}
+.nnode.http .ntype{color:var(--bl)}
+.nnode.branch{border-color:rgba(167,139,250,.3);background:var(--pu2)}
+.nnode.branch .ntype{color:var(--pu)}
+.nnode.exec-pass{border-color:rgba(34,197,94,.3);background:var(--gn2)}
+.nnode.exec-pass .ntype{color:var(--gn)}
+.nnode.exec-fail{border-color:rgba(239,68,68,.25);background:var(--rd2)}
+.nnode.exec-fail .ntype{color:var(--rd)}
+.nnode.read{border-color:var(--b2);background:var(--s3)}
+.nnode.merge{border-color:rgba(96,165,250,.3);background:var(--bl2)}
+.nnode.merge .ntype{color:var(--bl)}
+.nnode.code{border-color:rgba(167,139,250,.3);background:var(--pu2)}
+.nnode.code .ntype{color:var(--pu)}
+.nnode.notify{border-color:rgba(34,197,94,.3);background:var(--gn2)}
+.nnode.notify .ntype{color:var(--gn)}
+.nnode.respond{border-color:rgba(245,166,35,.4);background:var(--am3)}
+.nnode.respond .ntype{color:var(--am)}
+
+/* Detail panel */
+.n8n-detail{background:var(--s1);border:1px solid var(--b2);border-radius:var(--r2);margin-top:14px;overflow:hidden;animation:fu .2s ease}
+.nd-header{padding:14px 18px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:14px;background:var(--s2)}
+.nd-num{font-size:1.4rem;line-height:1;flex-shrink:0}
+.nd-name{font-size:1rem;font-weight:800;color:var(--tx)}
+.nd-type{font-size:.68rem;padding:2px 8px;border-radius:4px;background:var(--s3);color:var(--mu);border:1px solid var(--b1);font-weight:600}
+.nd-branch{font-size:.68rem;padding:2px 8px;border-radius:4px;font-weight:700}
+.nd-body{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0}
+@media(max-width:700px){.nd-body{grid-template-columns:1fr}}
+.nd-section{padding:14px 18px;border-right:1px solid var(--b1);border-bottom:1px solid var(--b1)}
+.nd-section:nth-child(even){border-right:none}
+.nd-section:last-child,.nd-section:nth-last-child(2):nth-child(odd){border-bottom:none}
+.nd-label{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--am);margin-bottom:7px}
+.nd-text{font-size:.78rem;color:var(--mu);line-height:1.65}
+.nd-why{border-left:2px solid var(--am);padding-left:10px}
+.nd-cfg-row{display:flex;gap:8px;margin-bottom:5px;font-size:.72rem}
+.nd-cfg-key{color:var(--mu);min-width:110px;flex-shrink:0;font-family:var(--mono)}
+.nd-cfg-val{color:var(--tx);font-family:var(--mono);word-break:break-all}
+.nd-code{font-family:var(--mono);font-size:.63rem;line-height:1.7;color:var(--mu);background:var(--bg);padding:10px 12px;border-radius:6px;white-space:pre;overflow-x:auto;max-height:220px;overflow-y:auto}
+.nd-code::-webkit-scrollbar{width:3px;height:3px}.nd-code::-webkit-scrollbar-thumb{background:var(--b2)}
+
 /* FOOTER */
 footer{position:relative;z-index:1;border-top:1px solid var(--b1);padding:20px 28px;display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--di)}
 footer a{color:var(--am);text-decoration:none}.footer-right{margin-left:auto;display:flex;gap:16px}
@@ -371,6 +429,93 @@ footer a{color:var(--am);text-decoration:none}.footer-right{margin-left:auto;dis
     </div>
 
   </div><!-- /fg -->
+</section>
+
+<hr class="div">
+
+<!-- n8n WORKFLOW SECTION -->
+<section id="workflow" class="wrap" style="padding-bottom:32px">
+  <div class="sec-title">⬡ n8n Workflow — 12 Nodes</div>
+  <p style="font-size:.82rem;color:var(--mu);margin-bottom:20px;max-width:640px">
+    The orchestration layer that connects everything. Import <code style="font-family:var(--mono);font-size:.75rem;background:var(--s2);padding:1px 5px;border-radius:4px">n8n_workflows/qa_agent_workflow.json</code> directly into n8n. Click any node to see its configuration and design rationale.
+  </p>
+
+  <!-- Flow diagram -->
+  <div class="n8n-flow">
+    <!-- Row 1: linear -->
+    <div class="nrow">
+      <div class="nnode trigger" onclick="selectNode(1)" id="nn1"><span class="nnum">①</span><span class="nname">Pipeline Trigger</span><span class="ntype">Webhook</span></div>
+      <div class="narr">→</div>
+      <div class="nnode http" onclick="selectNode(2)" id="nn2"><span class="nnum">②</span><span class="nname">Call QA Agent</span><span class="ntype">HTTP Request</span></div>
+      <div class="narr">→</div>
+      <div class="nnode branch" onclick="selectNode(3)" id="nn3"><span class="nnum">③</span><span class="nname">Check Verdict</span><span class="ntype">IF Node ⚖️</span></div>
+    </div>
+    <!-- Branch labels -->
+    <div class="nbranch-labels">
+      <div class="nbl pass">✅ PASS branch</div>
+      <div style="flex:1"></div>
+      <div class="nbl fail">❌ FAIL branch</div>
+    </div>
+    <!-- Row 2: split -->
+    <div class="nrow nrow-split">
+      <div class="nnode exec-pass" onclick="selectNode(4)" id="nn4"><span class="nnum">④</span><span class="nname">Run Robot Framework</span><span class="ntype">Execute Command</span></div>
+      <div class="narr">→</div>
+      <div class="nnode read" onclick="selectNode(6)" id="nn6"><span class="nnum">⑥</span><span class="nname">Read RF Report</span><span class="ntype">Read Binary File</span></div>
+      <div style="flex:1"></div>
+      <div class="nnode exec-fail" onclick="selectNode(5)" id="nn5"><span class="nnum">⑤</span><span class="nname">Run pytest</span><span class="ntype">Execute Command</span></div>
+      <div class="narr">→</div>
+      <div class="nnode read" onclick="selectNode(7)" id="nn7"><span class="nnum">⑦</span><span class="nname">Read pytest Report</span><span class="ntype">Read Binary File</span></div>
+    </div>
+    <!-- Row 3: converge -->
+    <div class="nrow" style="justify-content:center">
+      <div class="nnode merge" onclick="selectNode(8)" id="nn8"><span class="nnum">⑧</span><span class="nname">Merge Reports</span><span class="ntype">Merge</span></div>
+      <div class="narr">→</div>
+      <div class="nnode code" onclick="selectNode(9)" id="nn9"><span class="nnum">⑨</span><span class="nname">Build QA Summary</span><span class="ntype">Code (JS)</span></div>
+    </div>
+    <!-- Row 4: parallel notify -->
+    <div class="nrow nrow-split">
+      <div class="nnode notify" onclick="selectNode(10)" id="nn10"><span class="nnum">⑩</span><span class="nname">Slack Alert</span><span class="ntype">Slack Node</span></div>
+      <div style="flex:1"></div>
+      <div class="nnode http" onclick="selectNode(11)" id="nn11"><span class="nnum">⑪</span><span class="nname">Jenkins Webhook</span><span class="ntype">HTTP Request</span></div>
+    </div>
+    <!-- Row 5: respond -->
+    <div class="nrow" style="justify-content:center">
+      <div class="nnode respond" onclick="selectNode(12)" id="nn12"><span class="nnum">⑫</span><span class="nname">Respond to Webhook</span><span class="ntype">Respond to Webhook</span></div>
+    </div>
+  </div>
+
+  <!-- Detail panel -->
+  <div class="n8n-detail" id="n8nDetail" style="display:none">
+    <div class="nd-header">
+      <div class="nd-num" id="nd-num"></div>
+      <div>
+        <div class="nd-name" id="nd-name"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <span class="nd-type" id="nd-type"></span>
+          <span class="nd-branch" id="nd-branch" style="display:none"></span>
+        </div>
+      </div>
+      <button onclick="document.getElementById('n8nDetail').style.display='none'" style="margin-left:auto;background:none;border:none;color:var(--mu);cursor:pointer;font-size:1.2rem;padding:4px">×</button>
+    </div>
+    <div class="nd-body">
+      <div class="nd-section">
+        <div class="nd-label">Purpose</div>
+        <div class="nd-text" id="nd-purpose"></div>
+      </div>
+      <div class="nd-section" id="nd-config-section">
+        <div class="nd-label">Configuration</div>
+        <div id="nd-config"></div>
+      </div>
+      <div class="nd-section" id="nd-code-section" style="display:none">
+        <div class="nd-label">JavaScript Code</div>
+        <pre class="nd-code" id="nd-code"></pre>
+      </div>
+      <div class="nd-section">
+        <div class="nd-label">Design Rationale</div>
+        <div class="nd-text nd-why" id="nd-why"></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <div class="cta">
@@ -1001,6 +1146,165 @@ function runAnalysis() {
       running=false;
     }, 1300);
   }, t+=1200);
+}
+
+// ─── N8N NODE DATA ────────────────────────────────────────────────────────────
+const N8N_NODES = {
+  1: {
+    num:'①', name:'Pipeline Trigger', type:'Webhook', branch:null,
+    purpose:'Entry point for the entire workflow. Listens for POST requests at <code>/webhook/pipeline-trigger</code>. Receives the Kafka event JSON emitted by <code>mock_pipeline/producer.py</code>, a Cron schedule, or a manual curl call. The key setting is <code>responseMode: responseNode</code> — this holds the HTTP connection open until node ⑫ fires, so the caller receives the verdict synchronously.',
+    config:[['HTTP Method','POST'],['Path','/webhook/pipeline-trigger'],['Response Mode','responseNode — waits for node ⑫'],['Accepts','{"run_id":"…","source_table":"…","target_table":"…","log_path":"…"}']],
+    why:'Using a Webhook instead of a Cron trigger means the workflow fires on-demand from any upstream system — Kafka consumer, CI pipeline, or manual test — without polling. <code>responseMode: responseNode</code> turns the whole workflow into a synchronous RPC call.'
+  },
+  2: {
+    num:'②', name:'Call QA Agent', type:'HTTP Request', branch:null,
+    purpose:'POSTs the pipeline event to the Claude agent server running at <code>agent_server:8001/agent/run</code>. This is where the AI reasoning happens — a multi-turn Claude API call that invokes all three QA tools and synthesises a verdict. The node waits up to 60 seconds for the full loop to complete.',
+    config:[['Method','POST'],['URL','http://agent_server:8001/agent/run'],['Timeout','60,000 ms'],['Body','Mapped from Pipeline Trigger output (run_id, source_table, target_table, log_path)'],['Returns','{"verdict":"PASS|FAIL","root_cause":"…","details":[…],"confidence":0.0–1.0}']],
+    why:'The Claude tool-use loop typically takes 5–15 s (3 HTTP tool calls + 2 LLM round trips). A 60 s timeout gives headroom for slow tool responses without leaving the original webhook caller with a hung connection.'
+  },
+  3: {
+    num:'③', name:'Check Verdict', type:'IF Node', branch:'BRANCH POINT',
+    purpose:'Reads <code>$json.verdict</code> from the Call QA Agent response. If the value equals <code>"PASS"</code>, execution routes down the true/left branch to Robot Framework. Any other value (including <code>"FAIL"</code>) routes down the false/right branch to pytest. This is the central routing decision of the entire pipeline.',
+    config:[['Condition','{{ $json.verdict }} equals "PASS"'],['True branch (output 0)','→ Run Robot Framework'],['False branch (output 1)','→ Run pytest'],['Combinator','AND (single condition)']],
+    why:'Separating PASS → acceptance tests and FAIL → regression tests reflects real QA practice: on a healthy pipeline you want to confirm end-to-end contracts still hold; on a failure you want fast, targeted unit-level diagnostics to identify exactly which component broke.'
+  },
+  4: {
+    num:'④', name:'Run Robot Framework', type:'Execute Command', branch:'✅ PASS branch only',
+    purpose:'Shells out to run the full Robot Framework acceptance suite. Each keyword in the suite calls the tool server HTTP endpoints and verifies business-level contracts: row counts within 5% tolerance, schema matches source, zero Spark errors. The <code>EXIT_CODE:$?</code> echo captures the exit status for downstream nodes.',
+    config:[['Command','cd /qa && robot --outputdir reports/robot tests/robot/acceptance.robot 2>&1; echo "EXIT_CODE:$?"'],['Output dir','reports/robot/ (output.xml, log.html, report.html)'],['Run condition','Only when verdict == PASS']],
+    why:"Robot Framework's keyword-driven syntax maps naturally to pipeline SLAs. <code>Row Drop Should Be Under Threshold</code> and <code>Schema Should Match Source</code> are readable specifications — a product owner can audit the test suite without reading Python."
+  },
+  5: {
+    num:'⑤', name:'Run pytest', type:'Execute Command', branch:'❌ FAIL branch only',
+    purpose:'Shells out to run the full pytest regression suite with JUnit XML output. Tests directly exercise the Python tool classes (SQLValidator, LogAnalyser, SchemaComparator) with injected failure fixtures. On a FAIL run the relevant tests will pass (they expect failure) while the clean-run tests will fail — pinpointing exactly which mode triggered.',
+    config:[['Command','cd /qa && pytest tests/pytest/ --junitxml=reports/pytest/results.xml -v 2>&1; echo "EXIT_CODE:$?"'],['Output','reports/pytest/results.xml (JUnit XML)'],['Run condition','Only when verdict == FAIL']],
+    why:'pytest gives fast, precise feedback when something breaks. JUnit XML is the universal CI report format — parseable by Jenkins, GitHub Actions, and any standard CI system. Running it only on FAIL avoids the overhead of running 50 regression tests on every healthy pipeline run.'
+  },
+  6: {
+    num:'⑥', name:'Read RF Report', type:'Read Binary File', branch:'✅ PASS branch',
+    purpose:'Reads <code>reports/robot/output.xml</code> from disk after the Robot Framework run completes. This XML file contains the full execution tree — every keyword call, assertion result, and timing. The binary content is passed downstream to the Merge and Build QA Summary nodes.',
+    config:[['File Path','/qa/reports/robot/output.xml'],['Output field','data (binary)']],
+    why:"Reading the raw XML (not the HTML report) means the Build QA Summary code node can extract pass/fail counts programmatically. The /qa/ prefix maps to the Docker volume mount defined in docker-compose.yml."
+  },
+  7: {
+    num:'⑦', name:'Read pytest Report', type:'Read Binary File', branch:'❌ FAIL branch',
+    purpose:'Reads <code>reports/pytest/results.xml</code> after the pytest run. JUnit XML is a standard schema: <code>&lt;testcase&gt;</code> elements with <code>classname</code>, <code>name</code>, and optional <code>&lt;failure&gt;</code> child nodes. This enables downstream parsing of individual test outcomes.',
+    config:[['File Path','/qa/reports/pytest/results.xml'],['Output field','data (binary)']],
+    why:'The JUnit XML schema is understood by every CI tool. Feeding raw XML downstream rather than parsed data keeps the workflow format-agnostic — you could swap pytest for a different runner and only change this node path.'
+  },
+  8: {
+    num:'⑧', name:'Merge Reports', type:'Merge (mergeByPosition)', branch:'CONVERGE',
+    purpose:'Waits for both branches (PASS and FAIL) and merges their outputs. Since only one branch executes per run, this is effectively a pass-through — but n8n requires explicit convergence after a split to provide a single downstream connection point for the Build QA Summary node.',
+    config:[['Mode','mergeByPosition'],['Inputs','0: Read RF Report, 1: Read pytest Report'],['Output','Single item stream (whichever branch ran)']],
+    why:"n8n's execution model requires explicit merging after branching. Without this node the Build QA Summary node would need two separate input connections — one per branch — making the visual workflow ambiguous and harder to follow."
+  },
+  9: {
+    num:'⑨', name:'Build QA Summary', type:'Code Node (JavaScript)', branch:null,
+    purpose:"The only custom code in the entire workflow. Uses n8n's <code>$('node name')</code> cross-reference syntax to reach back to the agent result and the original trigger payload regardless of which branch ran. Builds a structured <code>summary</code> object and a Slack <code>mrkdwn</code>-formatted message string.",
+    config:[],
+    code:`const agentResult = $('Call QA Agent').first().json;
+const isPass = agentResult.verdict === 'PASS';
+
+const summary = {
+  run_id:             $('Pipeline Trigger').first().json.run_id,
+  verdict:            agentResult.verdict,
+  root_cause:         agentResult.root_cause,
+  details:            agentResult.details || [],
+  recommended_action: agentResult.recommended_action,
+  confidence:         agentResult.confidence,
+  test_framework:     isPass ? 'Robot Framework' : 'pytest',
+  timestamp:          new Date().toISOString(),
+};
+
+const slack_message = [
+  \`\${isPass ? '✅' : '❌'} *QA Pipeline Report* — \${agentResult.verdict}\`,
+  \`*Run ID:* \${summary.run_id}\`,
+  \`*Root Cause:* \${summary.root_cause}\`,
+  summary.details.length > 0
+    ? \`*Issues:*\\n\${summary.details.map(d => \`• \${d}\`).join('\\n')}\`
+    : '',
+  \`*Action:* \${summary.recommended_action}\`,
+  \`*Confidence:* \${(summary.confidence * 100).toFixed(0)}%\`,
+].filter(Boolean).join('\\n');
+
+return [{ json: { summary, slack_message, verdict: agentResult.verdict } }];`,
+    why:"The <code>$('Call QA Agent').first().json</code> syntax reaches back two nodes, bypassing the Read Report and Merge nodes entirely. This avoids threading the agent output through every intermediate node just to make it available here. Thirty lines of readable JS beats chaining six Set/Function nodes."
+  },
+  10: {
+    num:'⑩', name:'Slack Alert', type:'Slack Node', branch:'Parallel with ⑪',
+    purpose:"Posts the formatted <code>slack_message</code> string to the <code>#qa-alerts</code> Slack channel. The message uses Slack mrkdwn formatting: bold field labels, bullet-pointed issue lists, and a ✅/❌ emoji determined by the verdict. The webhook URL is read from <code>$env.SLACK_WEBHOOK_URL</code>.",
+    config:[['Webhook URL','$env.SLACK_WEBHOOK_URL (from .env)'],['Message','{{ $json.slack_message }}'],['Username','QA Agent'],['Icon',':robot_face:'],['Channel','#qa-alerts']],
+    why:"Storing the webhook URL in an environment variable keeps credentials out of the exported workflow JSON — the file is safe to commit. Slack runs in parallel with Jenkins (node ⑪) so a slow Slack API doesn't delay the Jenkins handoff."
+  },
+  11: {
+    num:'⑪', name:'Jenkins Webhook', type:'HTTP Request', branch:'Parallel with ⑩',
+    purpose:"POSTs the full <code>summary</code> JSON object to the Jenkins generic-webhook-trigger endpoint. This fires a downstream Jenkins job — for example a deployment pipeline that only proceeds if <code>verdict == 'PASS'</code>, or an incident-ticket creator that parses <code>root_cause</code> and <code>details</code>.",
+    config:[['Method','POST'],['URL','$env.JENKINS_WEBHOOK_URL'],['Query param','token=$env.JENKINS_TOKEN'],['Body','JSON.stringify($json.summary)'],['Content-Type','application/json']],
+    why:"Decoupling human notification (Slack) from machine handoff (Jenkins) means either can fail independently. Jenkins receives a structured JSON payload it can parse — not a human-readable string — so it can branch on <code>verdict</code>, display <code>confidence</code>, or attach <code>details</code> to a ticket."
+  },
+  12: {
+    num:'⑫', name:'Respond to Webhook', type:'Respond to Webhook', branch:null,
+    purpose:"Closes the HTTP connection held open by node ①. Returns the full <code>summary</code> JSON as the response body to the original caller — the Kafka consumer, CI step, or manual curl that triggered the pipeline. The caller receives a synchronous verdict without polling.",
+    config:[['Respond With','JSON'],['Response Body','JSON.stringify($("Build QA Summary").first().json.summary)'],['Status Code','200']],
+    why:"<code>responseMode: responseNode</code> on node ① means n8n holds the TCP connection open across the entire workflow execution. This node's output becomes the HTTP response. Any system that calls the webhook endpoint gets the full QA verdict in a single round trip — no second request, no polling loop, no callback URL."
+  }
+};
+
+let activeNode = null;
+function selectNode(id) {
+  // toggle off if same
+  if (activeNode === id) {
+    activeNode = null;
+    document.getElementById('n8nDetail').style.display = 'none';
+    document.querySelectorAll('.nnode').forEach(n => n.classList.remove('active'));
+    return;
+  }
+  activeNode = id;
+  document.querySelectorAll('.nnode').forEach(n => n.classList.remove('active'));
+  document.getElementById('nn'+id).classList.add('active');
+
+  const nd = N8N_NODES[id];
+  document.getElementById('nd-num').textContent = nd.num;
+  document.getElementById('nd-name').textContent = nd.name;
+  document.getElementById('nd-type').textContent = nd.type;
+
+  const branchEl = document.getElementById('nd-branch');
+  if (nd.branch) {
+    branchEl.style.display = 'inline-block';
+    branchEl.textContent = nd.branch;
+    const isPass = nd.branch.includes('PASS');
+    const isFail = nd.branch.includes('FAIL');
+    branchEl.style.background = isPass ? 'var(--gn2)' : isFail ? 'var(--rd2)' : 'var(--pu2)';
+    branchEl.style.color = isPass ? 'var(--gn)' : isFail ? 'var(--rd)' : 'var(--pu)';
+    branchEl.style.border = `1px solid ${isPass ? 'rgba(34,197,94,.25)' : isFail ? 'rgba(239,68,68,.2)' : 'rgba(167,139,250,.25)'}`;
+  } else {
+    branchEl.style.display = 'none';
+  }
+
+  document.getElementById('nd-purpose').innerHTML = nd.purpose;
+  document.getElementById('nd-why').innerHTML = nd.why;
+
+  const cfgEl = document.getElementById('nd-config');
+  const cfgSec = document.getElementById('nd-config-section');
+  if (nd.config && nd.config.length > 0) {
+    cfgSec.style.display = '';
+    cfgEl.innerHTML = nd.config.map(([k,v]) =>
+      `<div class="nd-cfg-row"><span class="nd-cfg-key">${k}</span><span class="nd-cfg-val">${v}</span></div>`
+    ).join('');
+  } else {
+    cfgSec.style.display = 'none';
+  }
+
+  const codeSec = document.getElementById('nd-code-section');
+  if (nd.code) {
+    codeSec.style.display = '';
+    document.getElementById('nd-code').textContent = nd.code;
+  } else {
+    codeSec.style.display = 'none';
+  }
+
+  document.getElementById('n8nDetail').style.display = 'block';
+  document.getElementById('n8nDetail').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
