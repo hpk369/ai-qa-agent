@@ -1,4 +1,4 @@
-# AI Agent QA Pipeline — n8n + Robot Framework + pytest
+# AI Agent QA Pipeline: n8n + Robot Framework + pytest
 
 **[▶ Live Demo](https://hpk369.github.io/ai-qa-agent/)** — interactive pipeline simulator, no setup required.
 
