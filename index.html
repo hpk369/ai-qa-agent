@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI QA Agent — Big Data Pipeline Monitor</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2230;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #7d8590;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --purple: #bc8cff;
+      --orange: #ffa657;
+      --cyan: #39d353;
+      --radius: 8px;
+      --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ─── Header ─── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+    }
+    .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header span { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+    .badge {
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;
+      background: rgba(88,166,255,0.15); color: var(--accent);
+      border: 1px solid rgba(88,166,255,0.3);
+      font-weight: 600; letter-spacing: 0.5px;
+    }
+
+    /* ─── Layout ─── */
+    main { max-width: 1280px; margin: 0 auto; padding: 32px; }
+    .grid { display: grid; grid-template-columns: 340px 1fr; gap: 24px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ─── Panel ─── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-body { padding: 20px; }
+
+    /* ─── Architecture diagram ─── */
+    .arch {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      line-height: 1.7;
+      color: var(--muted);
+      white-space: pre;
+    }
+    .arch .hl { color: var(--accent); }
+    .arch .hl2 { color: var(--purple); }
+    .arch .hl3 { color: var(--green); }
+    .arch .hl4 { color: var(--orange); }
+
+    /* ─── Controls ─── */
+    .controls { display: flex; flex-direction: column; gap: 16px; }
+    label { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 6px; font-weight: 500; }
+    .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mode-btn {
+      padding: 10px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+    }
+    .mode-btn:hover { border-color: var(--accent); background: rgba(88,166,255,0.08); }
+    .mode-btn.active {
+      border-color: var(--accent);
+      background: rgba(88,166,255,0.12);
+      color: var(--accent);
+    }
+    .mode-btn.active.fail-mode {
+      border-color: var(--red);
+      background: rgba(248,81,73,0.1);
+      color: var(--red);
+    }
+    .mode-icon { font-size: 1rem; display: block; margin-bottom: 2px; }
+    .mode-name { font-weight: 600; }
+    .mode-desc { font-size: 0.7rem; color: var(--muted); }
+    .run-btn {
+      width: 100%; padding: 12px;
+      background: var(--accent);
+      border: none; border-radius: var(--radius);
+      color: #0d1117; font-size: 0.9rem; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .run-btn:hover { background: #79beff; transform: translateY(-1px); }
+    .run-btn:disabled {
+      background: var(--border); color: var(--muted);
+      cursor: not-allowed; transform: none;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #000;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Pipeline steps ─── */
+    .steps { display: flex; flex-direction: column; gap: 0; }
+    .step {
+      display: flex; gap: 16px; align-items: flex-start;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      opacity: 0.35;
+      transition: opacity 0.3s;
+    }
+    .step:last-child { border-bottom: none; }
+    .step.active { opacity: 1; }
+    .step.done { opacity: 1; }
+    .step-dot {
+      width: 28px; height: 28px; min-width: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700;
+      background: var(--surface2);
+      transition: all 0.3s;
+    }
+    .step.active .step-dot { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.15); }
+    .step.done .step-dot { border-color: var(--green); background: rgba(63,185,80,0.15); color: var(--green); }
+    .step.fail .step-dot { border-color: var(--red); background: rgba(248,81,73,0.15); color: var(--red); }
+    .step-content { flex: 1; }
+    .step-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 2px; }
+    .step-sub { font-size: 0.75rem; color: var(--muted); }
+
+    /* ─── Agent log / reasoning panel ─── */
+    .agent-log {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.8;
+      padding: 16px;
+      min-height: 200px;
+      max-height: 380px;
+      overflow-y: auto;
+      color: var(--muted);
+    }
+    .agent-log::-webkit-scrollbar { width: 4px; }
+    .agent-log::-webkit-scrollbar-track { background: transparent; }
+    .agent-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .log-line { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 2px; }
+    .log-ts { color: #3d4349; min-width: 60px; }
+    .log-call { color: var(--purple); }
+    .log-result-pass { color: var(--green); }
+    .log-result-fail { color: var(--red); }
+    .log-info { color: var(--accent); }
+    .log-synth { color: var(--yellow); }
+    .log-dim { color: var(--muted); }
+
+    /* ─── Tool cards ─── */
+    .tool-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    @media (max-width: 700px) { .tool-cards { grid-template-columns: 1fr; } }
+    .tool-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      transition: all 0.3s;
+    }
+    .tool-card.calling { border-color: var(--accent); animation: pulse 1s ease-in-out infinite alternate; }
+    .tool-card.pass { border-color: var(--green); }
+    .tool-card.fail { border-color: var(--red); }
+    @keyframes pulse { from { opacity: 0.8; } to { opacity: 1; } }
+    .tc-name { font-size: 0.78rem; font-weight: 700; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .tc-status {
+      display: inline-block; font-size: 0.65rem; padding: 1px 6px;
+      border-radius: 4px; font-weight: 700; letter-spacing: 0.5px;
+    }
+    .tc-status.idle { background: var(--border); color: var(--muted); }
+    .tc-status.calling { background: rgba(88,166,255,0.2); color: var(--accent); }
+    .tc-status.pass { background: rgba(63,185,80,0.2); color: var(--green); }
+    .tc-status.fail { background: rgba(248,81,73,0.2); color: var(--red); }
+    .tc-metric { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+    .tc-metric span { color: var(--text); font-weight: 600; }
+
+    /* ─── Verdict ─── */
+    .verdict-card {
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-top: 20px;
+      border: 2px solid var(--border);
+      display: none;
+      animation: fadeIn 0.4s ease;
+    }
+    .verdict-card.pass { border-color: var(--green); background: rgba(63,185,80,0.07); }
+    .verdict-card.fail { border-color: var(--red); background: rgba(248,81,73,0.07); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .verdict-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .verdict-emoji { font-size: 2rem; }
+    .verdict-label { font-size: 1.5rem; font-weight: 800; }
+    .verdict-label.pass { color: var(--green); }
+    .verdict-label.fail { color: var(--red); }
+    .verdict-meta { font-size: 0.78rem; color: var(--muted); }
+    .verdict-root { font-size: 0.88rem; margin: 12px 0 8px; color: var(--text); }
+    .verdict-details { list-style: none; padding: 0; }
+    .verdict-details li {
+      font-size: 0.8rem; color: var(--muted);
+      padding: 4px 0 4px 18px; position: relative;
+    }
+    .verdict-details li::before { content: "•"; position: absolute; left: 6px; color: var(--red); }
+    .verdict-action {
+      margin-top: 12px; padding: 10px 14px;
+      background: var(--surface2); border-radius: 6px;
+      font-size: 0.8rem; color: var(--text);
+      border-left: 3px solid var(--yellow);
+    }
+    .verdict-confidence { font-size: 0.75rem; color: var(--muted); margin-top: 10px; }
+    .conf-bar {
+      height: 4px; background: var(--border); border-radius: 2px;
+      margin-top: 4px; overflow: hidden;
+    }
+    .conf-fill { height: 100%; border-radius: 2px; transition: width 1s ease; }
+
+    /* ─── Test results ─── */
+    .test-results { margin-top: 20px; display: none; animation: fadeIn 0.4s ease; }
+    .test-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .test-framework-badge {
+      font-size: 0.72rem; padding: 3px 10px; border-radius: 4px; font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .test-framework-badge.robot { background: rgba(61,179,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+    .test-framework-badge.pytest { background: rgba(255,166,87,0.15); color: var(--orange); border: 1px solid rgba(255,166,87,0.3); }
+    .test-case {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 12px; border-radius: 6px; margin-bottom: 4px;
+      font-size: 0.78rem; font-family: var(--mono);
+      background: var(--surface2); border: 1px solid var(--border);
+    }
+    .test-case .tc-icon { font-size: 0.9rem; min-width: 18px; }
+    .test-stats {
+      display: flex; gap: 16px; margin-bottom: 10px;
+      font-size: 0.82rem; font-weight: 600;
+    }
+    .stat-pass { color: var(--green); }
+    .stat-fail { color: var(--red); }
+
+    /* ─── Idle placeholder ─── */
+    .idle-placeholder {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 300px; gap: 12px; color: var(--muted);
+      text-align: center;
+    }
+    .idle-icon { font-size: 3rem; opacity: 0.4; }
+    .idle-text { font-size: 0.88rem; }
+
+    /* ─── Tech stack pills ─── */
+    .tech-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .pill {
+      font-size: 0.68rem; padding: 3px 10px; border-radius: 12px;
+      border: 1px solid var(--border); color: var(--muted); font-weight: 500;
+    }
+
+    /* ─── Run ID badge ─── */
+    .run-meta { font-size: 0.72rem; color: var(--muted); font-family: var(--mono); margin-bottom: 16px; display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🤖</div>
+  <h1>AI QA Agent</h1>
+  <span class="badge">DEMO</span>
+  <span>Big Data Pipeline Monitor · n8n + Claude + Robot Framework + pytest</span>
+</header>
+
+<main>
+  <div class="grid">
+
+    <!-- ─── LEFT COLUMN ─── -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Architecture -->
+      <div class="panel">
+        <div class="panel-header">⬡ Pipeline Architecture</div>
+        <div class="panel-body">
+          <div class="arch"><span class="hl">Kafka</span> / Cron / Webhook
+       │
+  [<span class="hl">n8n Trigger</span>]
+       │
+  [<span class="hl2">AI Agent</span>] ◄── <span class="hl2">Claude API</span>
+       │
+  ┌────┴──────────┐
+  │               │               │
+<span class="hl">[SQL Valid.]</span>  <span class="hl">[Log Analyser]</span>  <span class="hl">[Schema Cmp.]</span>
+  │               │               │
+  └───────┬────────────────────────┘
+          │
+   [<span class="hl2">LLM Synthesis</span>]
+    verdict + root cause
+          │
+    ┌─────┴──────┐
+   PASS        FAIL
+    │            │
+ <span class="hl3">[Robot FW]</span>    <span class="hl4">[pytest]</span>
+    │            │
+    └────┬───────┘
+         │
+  [<span class="hl">Slack</span> + <span class="hl">Jenkins</span>]</div>
+          <div class="tech-pills">
+            <span class="pill">n8n</span>
+            <span class="pill">Claude API</span>
+            <span class="pill">FastAPI</span>
+            <span class="pill">Robot Framework</span>
+            <span class="pill">pytest</span>
+            <span class="pill">Kafka</span>
+            <span class="pill">PostgreSQL</span>
+            <span class="pill">Docker</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="panel">
+        <div class="panel-header">⚡ Pipeline Trigger</div>
+        <div class="panel-body">
+          <div class="controls">
+            <div>
+              <label>Failure Injection Mode</label>
+              <div class="mode-grid">
+                <button class="mode-btn active" data-mode="none">
+                  <span class="mode-icon">✅</span>
+                  <span class="mode-name">Clean Run</span>
+                  <span class="mode-desc">All checks pass</span>
+                </button>
+                <button class="mode-btn fail-mode" data-mode="row_drop" style="display:none"><!-- placeholder --></button>
+              </div>
+              <div class="mode-grid" style="margin-top:8px">
+                <button class="mode-btn" data-mode="row_drop">
+                  <span class="mode-icon">📉</span>
+                  <span class="mode-name">Row Drop</span>
+                  <span class="mode-desc">40% rows missing</span>
+                </button>
+                <button class="mode-btn" data-mode="schema_drift">
+                  <span class="mode-icon">🔀</span>
+                  <span class="mode-name">Schema Drift</span>
+                  <span class="mode-desc">Column renamed</span>
+                </button>
+                <button class="mode-btn" data-mode="null_spike">
+                  <span class="mode-icon">🕳️</span>
+                  <span class="mode-name">Null Spike</span>
+                  <span class="mode-desc">35% nulls</span>
+                </button>
+                <button class="mode-btn" data-mode="latency">
+                  <span class="mode-icon">⏱️</span>
+                  <span class="mode-name">Kafka Lag</span>
+                  <span class="mode-desc">15k msg behind</span>
+                </button>
+              </div>
+            </div>
+            <button class="run-btn" id="runBtn" onclick="runPipeline()">
+              <div class="spinner" id="spinner"></div>
+              <span id="btnText">▶ Run Pipeline</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Steps tracker -->
+      <div class="panel">
+        <div class="panel-header">📋 Execution Steps</div>
+        <div class="panel-body" style="padding:12px 20px">
+          <div class="steps">
+            <div class="step" id="step-trigger">
+              <div class="step-dot">1</div>
+              <div class="step-content">
+                <div class="step-title">Pipeline Event Received</div>
+                <div class="step-sub" id="step-trigger-sub">Waiting for trigger…</div>
+              </div>
+            </div>
+            <div class="step" id="step-tools">
+              <div class="step-dot">2</div>
+              <div class="step-content">
+                <div class="step-title">Claude Calls QA Tools</div>
+                <div class="step-sub" id="step-tools-sub">sql_validator · log_analyser · schema_comparator</div>
+              </div>
+            </div>
+            <div class="step" id="step-synth">
+              <div class="step-dot">3</div>
+              <div class="step-content">
+                <div class="step-title">LLM Synthesis</div>
+                <div class="step-sub" id="step-synth-sub">Root cause analysis + verdict</div>
+              </div>
+            </div>
+            <div class="step" id="step-tests">
+              <div class="step-dot">4</div>
+              <div class="step-content">
+                <div class="step-title">Test Framework Invoked</div>
+                <div class="step-sub" id="step-tests-sub">PASS → Robot Framework · FAIL → pytest</div>
+              </div>
+            </div>
+            <div class="step" id="step-notify">
+              <div class="step-dot">5</div>
+              <div class="step-content">
+                <div class="step-title">Slack + Jenkins Notified</div>
+                <div class="step-sub" id="step-notify-sub">QA summary dispatched</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /left column -->
+
+    <!-- ─── RIGHT COLUMN ─── -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Agent reasoning log -->
+      <div class="panel">
+        <div class="panel-header">🧠 Agent Reasoning Log</div>
+        <div class="panel-body" style="padding:12px 16px">
+          <div class="agent-log" id="agentLog">
+            <div class="idle-placeholder">
+              <div class="idle-icon">🤖</div>
+              <div class="idle-text">Select a failure mode and click <strong>Run Pipeline</strong> to watch<br>the AI agent reason over your Big Data pipeline in real time.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool cards -->
+      <div class="tool-cards">
+        <div class="tool-card" id="card-sql">
+          <div class="tc-name">
+            🗄️ SQL Validator
+            <span class="tc-status idle" id="status-sql">IDLE</span>
+          </div>
+          <div class="tc-metric">Source rows: <span id="sql-src">—</span></div>
+          <div class="tc-metric">Target rows: <span id="sql-tgt">—</span></div>
+          <div class="tc-metric">Row drop: <span id="sql-drop">—</span></div>
+          <div class="tc-metric">Null rate (cust_id): <span id="sql-null">—</span></div>
+        </div>
+        <div class="tool-card" id="card-log">
+          <div class="tc-name">
+            📋 Log Analyser
+            <span class="tc-status idle" id="status-log">IDLE</span>
+          </div>
+          <div class="tc-metric">Errors: <span id="log-err">—</span></div>
+          <div class="tc-metric">Warnings: <span id="log-warn">—</span></div>
+          <div class="tc-metric">Kafka lag: <span id="log-lag">—</span></div>
+        </div>
+        <div class="tool-card" id="card-schema">
+          <div class="tc-name">
+            🔍 Schema Comparator
+            <span class="tc-status idle" id="status-schema">IDLE</span>
+          </div>
+          <div class="tc-metric">Added cols: <span id="sch-add">—</span></div>
+          <div class="tc-metric">Removed cols: <span id="sch-rm">—</span></div>
+          <div class="tc-metric">Renamed cols: <span id="sch-ren">—</span></div>
+          <div class="tc-metric">Type changes: <span id="sch-type">—</span></div>
+        </div>
+      </div>
+
+      <!-- Run meta -->
+      <div class="run-meta" id="runMeta"></div>
+
+      <!-- Verdict -->
+      <div class="verdict-card" id="verdictCard">
+        <div class="verdict-header">
+          <div class="verdict-emoji" id="verdictEmoji"></div>
+          <div>
+            <div class="verdict-label" id="verdictLabel"></div>
+            <div class="verdict-meta" id="verdictMeta"></div>
+          </div>
+        </div>
+        <div class="verdict-root" id="verdictRoot"></div>
+        <ul class="verdict-details" id="verdictDetails"></ul>
+        <div class="verdict-action" id="verdictAction"></div>
+        <div class="verdict-confidence">
+          Confidence: <span id="confPct"></span>
+          <div class="conf-bar"><div class="conf-fill" id="confFill"></div></div>
+        </div>
+      </div>
+
+      <!-- Test results -->
+      <div class="test-results" id="testResults">
+        <div class="panel">
+          <div class="panel-header" id="testPanelHeader">🧪 Test Results</div>
+          <div class="panel-body">
+            <div class="test-header">
+              <span class="test-framework-badge" id="fwBadge"></span>
+              <div class="test-stats">
+                <span class="stat-pass" id="statPass"></span>
+                <span class="stat-fail" id="statFail"></span>
+              </div>
+            </div>
+            <div id="testCaseList"></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /right column -->
+  </div><!-- /grid -->
+</main>
+
+<script>
+  let selectedMode = 'none';
+  let running = false;
+
+  // Mode buttons
+  document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
+    if (btn.dataset.mode === 'row_drop' && btn.classList.contains('active') && btn.style.display === 'none') return;
+    btn.addEventListener('click', () => {
+      if (running) return;
+      document.querySelectorAll('.mode-btn[data-mode]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedMode = btn.dataset.mode;
+    });
+  });
+
+  // Remove the hidden placeholder button
+  document.querySelector('.mode-btn[data-mode="row_drop"][style]')?.remove();
+
+  function ts() {
+    return new Date().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+
+  function appendLog(text, cls = 'log-dim') {
+    const log = document.getElementById('agentLog');
+    // Clear idle placeholder on first message
+    if (log.querySelector('.idle-placeholder')) log.innerHTML = '';
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-ts">${ts()}</span><span class="${cls}">${text}</span>`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function setStep(id, state, subText) {
+    const el = document.getElementById(id);
+    el.className = 'step ' + state;
+    el.querySelector('.step-dot').textContent = state === 'done' ? '✓' : state === 'fail' ? '✗' : el.querySelector('.step-dot').textContent;
+    if (subText) document.getElementById(id + '-sub').textContent = subText;
+  }
+
+  function setToolCard(tool, state, metrics = {}) {
+    const cardMap = {sql_validator:'sql', log_analyser:'log', schema_comparator:'schema'};
+    const key = cardMap[tool];
+    if (!key) return;
+    const card = document.getElementById('card-' + key);
+    const status = document.getElementById('status-' + key);
+    card.className = 'tool-card ' + state;
+    status.className = 'tc-status ' + state;
+    status.textContent = state.toUpperCase();
+
+    if (tool === 'sql_validator' && metrics) {
+      if (metrics.source_count !== undefined) document.getElementById('sql-src').textContent = metrics.source_count?.toLocaleString();
+      if (metrics.target_count !== undefined) document.getElementById('sql-tgt').textContent = metrics.target_count?.toLocaleString();
+      if (metrics.row_drop_pct !== undefined) document.getElementById('sql-drop').textContent = metrics.row_drop_pct + '%';
+      if (metrics.null_rates?.customer_id !== undefined)
+        document.getElementById('sql-null').textContent = (metrics.null_rates.customer_id * 100).toFixed(0) + '%';
+    }
+    if (tool === 'log_analyser' && metrics) {
+      if (metrics.error_count !== undefined) document.getElementById('log-err').textContent = metrics.error_count;
+      if (metrics.warn_count !== undefined) document.getElementById('log-warn').textContent = metrics.warn_count;
+      if (metrics.kafka_lag !== undefined) document.getElementById('log-lag').textContent = metrics.kafka_lag?.toLocaleString();
+    }
+    if (tool === 'schema_comparator' && metrics) {
+      if (metrics.columns_added !== undefined) document.getElementById('sch-add').textContent = metrics.columns_added?.length;
+      if (metrics.columns_removed !== undefined) document.getElementById('sch-rm').textContent = metrics.columns_removed?.length;
+      if (metrics.columns_renamed !== undefined) document.getElementById('sch-ren').textContent = metrics.columns_renamed?.length;
+      if (metrics.type_changes !== undefined) document.getElementById('sch-type').textContent = metrics.type_changes?.length;
+    }
+  }
+
+  function resetUI() {
+    document.getElementById('agentLog').innerHTML = '';
+    document.getElementById('verdictCard').style.display = 'none';
+    document.getElementById('testResults').style.display = 'none';
+    document.getElementById('runMeta').style.display = 'none';
+    ['sql','log','schema'].forEach(k => {
+      document.getElementById('card-' + k).className = 'tool-card';
+      document.getElementById('status-' + k).className = 'tc-status idle';
+      document.getElementById('status-' + k).textContent = 'IDLE';
+    });
+    document.getElementById('sql-src').textContent =
+    document.getElementById('sql-tgt').textContent =
+    document.getElementById('sql-drop').textContent =
+    document.getElementById('sql-null').textContent =
+    document.getElementById('log-err').textContent =
+    document.getElementById('log-warn').textContent =
+    document.getElementById('log-lag').textContent =
+    document.getElementById('sch-add').textContent =
+    document.getElementById('sch-rm').textContent =
+    document.getElementById('sch-ren').textContent =
+    document.getElementById('sch-type').textContent = '—';
+    ['step-trigger','step-tools','step-synth','step-tests','step-notify'].forEach(id => {
+      const el = document.getElementById(id);
+      el.className = 'step';
+      const dot = el.querySelector('.step-dot');
+      dot.textContent = ['step-trigger','step-tools','step-synth','step-tests','step-notify']
+        .indexOf(id) + 1;
+    });
+  }
+
+  function showVerdict(data) {
+    const card = document.getElementById('verdictCard');
+    const isPass = data.verdict === 'PASS';
+    card.className = 'verdict-card ' + (isPass ? 'pass' : 'fail');
+    document.getElementById('verdictEmoji').textContent = isPass ? '✅' : '❌';
+    const label = document.getElementById('verdictLabel');
+    label.textContent = data.verdict;
+    label.className = 'verdict-label ' + (isPass ? 'pass' : 'fail');
+    document.getElementById('verdictMeta').textContent =
+      `Routed to: ${data.test_framework}  ·  Confidence: ${(data.confidence * 100).toFixed(0)}%`;
+    document.getElementById('verdictRoot').textContent = '🔎 ' + data.root_cause;
+    const ul = document.getElementById('verdictDetails');
+    ul.innerHTML = data.details.map(d => `<li>${d}</li>`).join('');
+    document.getElementById('verdictAction').innerHTML = '💡 <strong>Recommended action:</strong> ' + data.recommended_action;
+    document.getElementById('confPct').textContent = (data.confidence * 100).toFixed(0) + '%';
+    const fill = document.getElementById('confFill');
+    fill.style.background = isPass ? 'var(--green)' : 'var(--red)';
+    fill.style.width = '0%';
+    card.style.display = 'block';
+    setTimeout(() => { fill.style.width = (data.confidence * 100) + '%'; }, 50);
+  }
+
+  function showTestResults(data) {
+    const isRobot = data.framework === 'Robot Framework';
+    document.getElementById('testResults').style.display = 'block';
+    document.getElementById('testPanelHeader').textContent =
+      (isRobot ? '🤖' : '🧪') + ' Test Results — ' + data.framework;
+    const badge = document.getElementById('fwBadge');
+    badge.textContent = data.framework;
+    badge.className = 'test-framework-badge ' + (isRobot ? 'robot' : 'pytest');
+    document.getElementById('statPass').textContent = `✓ ${data.passed} passed`;
+    document.getElementById('statFail').textContent = `✗ ${data.failed} failed`;
+    const list = document.getElementById('testCaseList');
+    list.innerHTML = '';
+    if (isRobot) {
+      data.cases.forEach(name => {
+        const div = document.createElement('div');
+        div.className = 'test-case';
+        div.innerHTML = `<span class="tc-icon">✅</span><span>${name}</span>`;
+        list.appendChild(div);
+      });
+    } else {
+      data.cases.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'test-case';
+        div.innerHTML = `<span class="tc-icon">${c.passed ? '✅' : '❌'}</span><span style="color:${c.passed ? 'var(--text)' : 'var(--red)'}">${c.name}</span>`;
+        list.appendChild(div);
+      });
+    }
+  }
+
+  function toolLabel(t) {
+    return {sql_validator:'sql_validator', log_analyser:'log_analyser', schema_comparator:'schema_comparator'}[t] || t;
+  }
+
+  async function runPipeline() {
+    if (running) return;
+    running = true;
+    resetUI();
+    document.getElementById('runBtn').disabled = true;
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('btnText').textContent = 'Running…';
+
+    const mode = selectedMode;
+    const url = `/run?failure_mode=${mode}`;
+    const es = new EventSource(url);
+    let toolsDone = 0;
+
+    es.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+
+      if (data.type === 'start') {
+        const meta = document.getElementById('runMeta');
+        meta.textContent = `run_id: ${data.run_id}  ·  mode: ${data.failure_mode}  ·  ${new Date().toISOString()}`;
+        meta.style.display = 'block';
+        setStep('step-trigger', 'done', `run_id: ${data.run_id}`);
+        appendLog(`Pipeline event received — run_id=${data.run_id} mode=${data.failure_mode}`, 'log-info');
+        setStep('step-tools', 'active', 'Dispatching tool calls…');
+      }
+
+      else if (data.type === 'tool_call') {
+        setToolCard(data.tool, 'calling');
+        appendLog(`→ tool_use: ${toolLabel(data.tool)}(${JSON.stringify(data.input).slice(0,80)})`, 'log-call');
+      }
+
+      else if (data.type === 'tool_result') {
+        const isPass = data.result.status === 'PASS';
+        setToolCard(data.tool, isPass ? 'pass' : 'fail', data.result);
+        const issues = data.result.issues?.length > 0 ? ` — ${data.result.issues.join('; ')}` : '';
+        appendLog(`← tool_result: ${toolLabel(data.tool)} → ${data.result.status}${issues}`,
+          isPass ? 'log-result-pass' : 'log-result-fail');
+        toolsDone++;
+        if (toolsDone === 3) setStep('step-tools', 'done', 'All 3 tools completed');
+      }
+
+      else if (data.type === 'synthesising') {
+        setStep('step-synth', 'active', 'Synthesising root cause…');
+        appendLog('⟳ Synthesising tool results — forming verdict…', 'log-synth');
+      }
+
+      else if (data.type === 'verdict') {
+        const isPass = data.verdict === 'PASS';
+        setStep('step-synth', 'done', `Verdict: ${data.verdict} (confidence ${(data.confidence*100).toFixed(0)}%)`);
+        appendLog(`✦ VERDICT: ${data.verdict} — ${data.root_cause}`,
+          isPass ? 'log-result-pass' : 'log-result-fail');
+        showVerdict(data);
+        setStep('step-tests', 'active', `Launching ${data.test_framework}…`);
+        appendLog(`→ Invoking ${data.test_framework} test suite…`, 'log-info');
+      }
+
+      else if (data.type === 'tests_done') {
+        const isPass = data.failed === 0;
+        setStep('step-tests', isPass ? 'done' : 'fail',
+          `${data.framework}: ${data.passed} passed, ${data.failed} failed`);
+        appendLog(`← ${data.framework} complete: ${data.passed} passed / ${data.failed} failed`,
+          isPass ? 'log-result-pass' : 'log-result-fail');
+        showTestResults(data);
+        setStep('step-notify', 'done', 'Slack #qa-alerts + Jenkins webhook dispatched');
+        appendLog('→ Slack alert dispatched to #qa-alerts', 'log-info');
+        appendLog('→ Jenkins webhook triggered with QA summary payload', 'log-info');
+      }
+
+      else if (data.type === 'done') {
+        es.close();
+        running = false;
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('btnText').textContent = '▶ Run Pipeline';
+        appendLog('─── Pipeline run complete ───', 'log-dim');
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      running = false;
+      document.getElementById('runBtn').disabled = false;
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('btnText').textContent = '▶ Run Pipeline';
+      appendLog('✗ Connection error — is the demo server running?', 'log-result-fail');
+    };
+  }
+</script>
+</body>
+</html>
