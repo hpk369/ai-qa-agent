@@ -700,6 +700,149 @@
     return {sql_validator:'sql_validator', log_analyser:'log_analyser', schema_comparator:'schema_comparator'}[t] || t;
   }
 
+  // ─── Static pipeline simulator (no backend required) ───
+  // Mirrors the FastAPI _stream_run() in docs/app.py so the demo
+  // works on GitHub Pages with zero server.
+  const BASE_ROWS = 100000;
+  const SIM = {
+    none: {
+      sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
+                null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0},
+                status: 'PASS', issues: [] },
+      log:    { error_count: 0, warn_count: 0, errors: [], kafka_lag: 0,
+                status: 'PASS', issues: [] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
+                type_changes: [], status: 'PASS', issues: [] },
+      verdict: {
+        verdict: 'PASS',
+        root_cause: 'All QA checks passed — pipeline is healthy.',
+        details: [],
+        recommended_action: 'No action required. Pipeline completed within all tolerance thresholds.',
+        confidence: 0.98,
+      },
+    },
+    row_drop: {
+      sql:    { source_count: BASE_ROWS, target_count: 60000, row_drop_pct: 40.0,
+                null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0},
+                status: 'FAIL', issues: ['Row drop 40.0%'] },
+      log:    { error_count: 1, warn_count: 5,
+                errors: ['ERROR: 40000 records dropped during deduplication stage'],
+                kafka_lag: 0, status: 'FAIL',
+                issues: ['ERROR: 40000 records dropped during deduplication stage'] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
+                type_changes: [], status: 'PASS', issues: [] },
+      verdict: {
+        verdict: 'FAIL',
+        root_cause: 'Target table has 40% fewer rows than source — likely a partition skew or silent deduplication error in the Spark job.',
+        details: ['Row drop 40.0% (threshold: 5%)',
+                  'ERROR: 40000 records dropped during deduplication stage',
+                  'WARN: Executor memory pressure at 85%'],
+        recommended_action: 'Inspect Spark deduplication step; check partition skew in CustomerTransformStep and increase executor memory.',
+        confidence: 0.95,
+      },
+    },
+    schema_drift: {
+      sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
+                null_rates: {customer_id: 0.0, amount: 0.0, bal: 0.0},
+                status: 'PASS', issues: [] },
+      log:    { error_count: 1, warn_count: 3,
+                errors: ["ERROR: Column 'account_balance' not found in target schema"],
+                kafka_lag: 0, status: 'FAIL',
+                issues: ["ERROR: Column 'account_balance' not found in target schema"] },
+      schema: { columns_added: ['bal'], columns_removed: ['account_balance'],
+                columns_renamed: [{from: 'account_balance', to: 'bal'}],
+                type_changes: [], status: 'FAIL',
+                issues: ['Column renamed: account_balance → bal'] },
+      verdict: {
+        verdict: 'FAIL',
+        root_cause: "Column 'account_balance' renamed to 'bal' in target schema — likely a migration script applied to the wrong environment.",
+        details: ['Column renamed: account_balance → bal',
+                  "ERROR: Column 'account_balance' not found in target schema"],
+        recommended_action: 'Revert the target schema migration or update the pipeline transformation to align with the new column name.',
+        confidence: 0.97,
+      },
+    },
+    null_spike: {
+      sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
+                null_rates: {customer_id: 0.35, amount: 0.0, account_balance: 0.0},
+                status: 'FAIL', issues: ['customer_id null rate 35%'] },
+      log:    { error_count: 2, warn_count: 12,
+                errors: ['ERROR: NullPointerException in CustomerTransformStep at line 84',
+                         'ERROR: Null propagation detected in customer_id join key'],
+                kafka_lag: 0, status: 'FAIL',
+                issues: ['ERROR: NullPointerException in CustomerTransformStep at line 84',
+                         'ERROR: Null propagation detected in customer_id join key'] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
+                type_changes: [], status: 'PASS', issues: [] },
+      verdict: {
+        verdict: 'FAIL',
+        root_cause: 'customer_id null rate spiked to 35% — NullPointerException in CustomerTransformStep suggests a broken join key.',
+        details: ['customer_id null rate 35% (threshold: 5%)',
+                  'ERROR: NullPointerException in CustomerTransformStep at line 84',
+                  'ERROR: Null propagation detected in customer_id join key'],
+        recommended_action: 'Fix the null-safe join in CustomerTransformStep line 84; add NOT NULL constraint to customer_id in the target DDL.',
+        confidence: 0.96,
+      },
+    },
+    latency: {
+      sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
+                null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0},
+                status: 'PASS', issues: [] },
+      log:    { error_count: 1, warn_count: 8,
+                errors: ['ERROR: Kafka consumer lag exceeded 10000 messages'],
+                kafka_lag: 15000, status: 'FAIL',
+                issues: ['ERROR: Kafka consumer lag exceeded 10000 messages',
+                         'Kafka consumer lag: 15000 messages'] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
+                type_changes: [], status: 'PASS', issues: [] },
+      verdict: {
+        verdict: 'FAIL',
+        root_cause: 'Kafka consumer lag of 15,000 messages exceeds the 10,000 threshold — consumer group is falling behind.',
+        details: ['Kafka consumer lag: 15000 messages (threshold: 10000)',
+                  'ERROR: Kafka consumer lag exceeded 10000 messages'],
+        recommended_action: 'Scale out the Kafka consumer group or investigate back-pressure in the downstream Spark streaming job.',
+        confidence: 0.93,
+      },
+    },
+  };
+
+  const FAILED_TESTS = {
+    row_drop: { passed: 6, failed: 2, cases: [
+      ['test_clean_run_passes', false], ['test_row_drop_detected', true],
+      ['test_null_spike_detected', true], ['test_duplicate_detection', true],
+      ['test_mock_clean_passes', false], ['test_mock_row_drop_fails', true],
+      ['test_all_pass_on_none', false], ['test_sql_detects_row_drop', true],
+    ]},
+    schema_drift: { passed: 5, failed: 3, cases: [
+      ['test_clean_schema_passes', false], ['test_renamed_column_detected', true],
+      ['test_removed_column_detected', true], ['test_mock_schema_drift_fails', true],
+      ['test_schema_detects_drift', true], ['test_mock_clean_passes', false],
+      ['test_all_pass_on_none', false], ['test_sql_unaffected_by_schema_drift', true],
+    ]},
+    null_spike: { passed: 4, failed: 4, cases: [
+      ['test_clean_run_passes', false], ['test_null_spike_detected', true],
+      ['test_mock_null_spike_fails', true], ['test_sql_detects_null_spike', true],
+      ['test_log_detects_null_errors', true], ['test_mock_clean_passes', false],
+      ['test_all_pass_on_none', false], ['test_missing_log_reports_error', false],
+    ]},
+    latency: { passed: 5, failed: 3, cases: [
+      ['test_mock_latency_fails', true], ['test_kafka_lag_detected', true],
+      ['test_status_is_fail_on_lag', true], ['test_log_detects_kafka_lag', true],
+      ['test_mock_clean_passes', false], ['test_all_pass_on_none', false],
+      ['test_sql_unaffected_by_latency', true], ['test_mock_null_spike_fails', false],
+    ]},
+  };
+
+  const ROBOT_CASES = ['Tool Server Is Healthy', 'Pipeline Run Completes Successfully',
+    'Schema Should Match Source', 'Logs Should Contain No Errors',
+    'Row Count Within Tolerance', 'Null Rate Within Tolerance For Amount'];
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function makeRunId() {
+    return Math.random().toString(16).slice(2, 10);
+  }
+
   async function runPipeline() {
     if (running) return;
     running = true;
@@ -709,12 +852,11 @@
     document.getElementById('btnText').textContent = 'Running…';
 
     const mode = selectedMode;
-    const url = `/run?failure_mode=${mode}`;
-    const es = new EventSource(url);
+    const run_id = makeRunId();
+    const sim = SIM[mode] || SIM.none;
     let toolsDone = 0;
 
-    es.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
+    const handle = (data) => {
 
       if (data.type === 'start') {
         const meta = document.getElementById('runMeta');
@@ -768,7 +910,6 @@
       }
 
       else if (data.type === 'done') {
-        es.close();
         running = false;
         document.getElementById('runBtn').disabled = false;
         document.getElementById('spinner').style.display = 'none';
@@ -777,14 +918,54 @@
       }
     };
 
-    es.onerror = () => {
-      es.close();
+    try {
+      handle({type: 'start', run_id, failure_mode: mode});
+      await sleep(300);
+
+      handle({type: 'tool_call', tool: 'sql_validator',
+              input: {source_table: 'src.transactions', target_table: 'tgt.transactions', run_id}});
+      await sleep(900);
+      handle({type: 'tool_result', tool: 'sql_validator', result: sim.sql});
+      await sleep(200);
+
+      handle({type: 'tool_call', tool: 'log_analyser',
+              input: {log_path: `/logs/spark_run_${run_id}.log`, run_id}});
+      await sleep(700);
+      handle({type: 'tool_result', tool: 'log_analyser', result: sim.log});
+      await sleep(200);
+
+      handle({type: 'tool_call', tool: 'schema_comparator',
+              input: {source_table: 'src.transactions', target_table: 'tgt.transactions'}});
+      await sleep(800);
+      handle({type: 'tool_result', tool: 'schema_comparator', result: sim.schema});
+      await sleep(400);
+
+      handle({type: 'synthesising'});
+      await sleep(1100);
+
+      const v = sim.verdict;
+      const framework = v.verdict === 'PASS' ? 'Robot Framework' : 'pytest';
+      handle({type: 'verdict', ...v, test_framework: framework});
+      await sleep(1500);
+
+      if (v.verdict === 'PASS') {
+        handle({type: 'tests_done', framework: 'Robot Framework',
+                passed: 6, failed: 0, cases: ROBOT_CASES});
+      } else {
+        const ft = FAILED_TESTS[mode] || {passed: 0, failed: 0, cases: []};
+        handle({type: 'tests_done', framework: 'pytest',
+                passed: ft.passed, failed: ft.failed,
+                cases: ft.cases.map(([name, passed]) => ({name, passed}))});
+      }
+      await sleep(200);
+      handle({type: 'done'});
+    } catch (err) {
       running = false;
       document.getElementById('runBtn').disabled = false;
       document.getElementById('spinner').style.display = 'none';
       document.getElementById('btnText').textContent = '▶ Run Pipeline';
-      appendLog('✗ Connection error — is the demo server running?', 'log-result-fail');
-    };
+      appendLog('✗ Simulation error: ' + err.message, 'log-result-fail');
+    }
   }
 </script>
 </body>
