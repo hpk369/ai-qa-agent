@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.incident import Incident, load, open_incident, persist
 from agent.prompts import SYNTHESIS_PROMPT, SYSTEM_PROMPT
+from agent.runbooks import select_runbook
 from agent.severity import classify, load_config
 from agent.slack_blocks import build_parent_message
 from agent.slack_client import SlackClient
@@ -110,7 +111,8 @@ def build_response(
             "evidence": agent_output.get("evidence", []),
             "root_cause": agent_output.get("root_cause"),
             "confidence": agent_output.get("confidence", 0.0),
-            "runbook": agent_output.get("runbook"),
+            # Deterministic, like severity — see agent/runbooks.py.
+            "runbook": select_runbook(signals),
             "recommended_action": agent_output.get("recommended_action"),
             # Deterministic, not model-decided: P1/P2 always require a
             # recorded human approval before remediation (see T1.5).

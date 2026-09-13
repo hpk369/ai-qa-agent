@@ -119,6 +119,7 @@ class TestRowDropFailureMode:
         assert response["clean"] is False
         assert response["incident"]["severity"] == "P2"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-001-row-shortfall.md"
 
 
 class TestSchemaDriftFailureMode:
@@ -138,6 +139,7 @@ class TestSchemaDriftFailureMode:
 
         assert response["incident"]["severity"] == "P1"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-002-schema-drift.md"
 
 
 class TestNullSpikeFailureMode:
@@ -156,6 +158,7 @@ class TestNullSpikeFailureMode:
 
         assert response["incident"]["severity"] == "P3"
         assert response["incident"]["requires_approval"] is False
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-003-null-spike.md"
 
 
 class TestLatencyFailureMode:
@@ -174,6 +177,7 @@ class TestLatencyFailureMode:
 
         assert response["incident"]["severity"] == "P2"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-004-consumer-lag.md"
 
 
 class TestChecksPerformed:
