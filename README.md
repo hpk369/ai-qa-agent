@@ -8,11 +8,13 @@ This repository is mid-migration from an earlier "AI QA pipeline" demo into this
 
 ## Phase status
 
-**Phase 0 (triage reframe) is complete. Phase 1 (Slack incident channel, runbooks, evidence) is in progress.** The pipeline still runs against the original Postgres/Kafka mock stack described below — the Hadoop stack (HDFS, YARN, Hive, Spark-on-YARN) in `expansion-plan.md` Track B has **not been built yet**; nothing in this README should be read as claiming it has.
+**Phase 0 (triage reframe) and Phase 1 (Slack incident channel, runbooks, evidence, MTTA/MTTR) are both complete.** The pipeline still runs against the original Postgres/Kafka mock stack described below — the Hadoop stack (HDFS, YARN, Hive, Spark-on-YARN) in `expansion-plan.md` Track B has **not been built yet**; nothing in this README should be read as claiming it has.
 
 Phase 0: the agent reports signals rather than a verdict; `agent/severity.py` + `config/severity.yml` classify severity deterministically; every non-clean run opens a structured **incident record** (`agent/incident.py`), the system of record; `/agent/run` returns `{run_id, incident, clean, checks_performed, duration_ms}` (see [Agent Response Contract](#agent-response-contract)); terminology swept throughout (`docs/app.py`'s demo server is the one deliberate exception — see the note in that file, and [demo pages caveat](#demo-pages-caveat) below).
 
-Phase 1 so far: `agent/slack_client.py` (bot-token Slack Web API client), `agent/slack_blocks.py` (Block Kit incident messages), `agent/slack_verify.py` (HMAC request verification), and the agent server now posts every incident to Slack itself and exposes `/slack/action` for button interactivity — see [`docs/workflow-map.md`](docs/workflow-map.md) for why that moved out of n8n. **None of this has run against a live Slack workspace** — this environment has none of Phase 1's human prerequisites (a dedicated Slack workspace/app/bot token/channels/tunnel). `SLACK_MODE=stub` (the default) is exercised throughout instead, writing every payload Slack would have received to `reports/slack/` with no network call — set `SLACK_MODE=live` once those prerequisites exist.
+Phase 1: `agent/slack_client.py` (bot-token Slack Web API client), `agent/slack_blocks.py` (Block Kit incident messages, golden-file tested), `agent/slack_verify.py` (HMAC request verification) — the agent server posts every incident to Slack itself and exposes `/slack/action` for button interactivity, not n8n (see [`docs/workflow-map.md`](docs/workflow-map.md) for why). `agent/incident.py::record_approval_decision` is the full Approve/Reject/Escalate gate (a second decision on an already-decided incident is rejected and reported in-thread, never silently ignored). `agent/runbooks.py` deterministically links every incident to one of five runbooks (`docs/runbooks/`), each with real, runnable diagnostic commands. `agent/evidence.py` collects an evidence bundle on every incident open, and `scripts/first-15-minutes.sh` is a standalone (no Python) equivalent for an on-call engineer working directly on a broken machine — actually run against this repo's own sandbox to confirm it degrades gracefully with no Docker/Kafka/tool-server running. `agent/incident.py::resolve_incident` syncs real Slack thread replies/reactions for MTTA, computes MTTR, and updates the Slack parent message to show RESOLVED with both figures; `scripts/incident_metrics.py` reports count-by-severity, median/p90 MTTA/MTTR, and the false-positive rate from `reports/incidents/*.json`.
+
+**None of this has run against a live Slack workspace** — this environment has none of Phase 1's human prerequisites (a dedicated Slack workspace/app/bot token/channels/tunnel). `SLACK_MODE=stub` (the default) is exercised throughout instead, writing every payload Slack would have received to `reports/slack/` with no network call, including a full open→acknowledged→approved→remediating→verifying→resolved lifecycle demonstration run end-to-end against the real code. Set `SLACK_MODE=live` and populate `.env` once those prerequisites exist — see `IMPLEMENTATION.md`'s Phase 1 human-prerequisites checklist.
 
 <a id="demo-pages-caveat"></a>The demo server (`docs/app.py`) and the static GitHub Pages front end (`docs/index.html`, `docs/index_v2.html`) still narrate the **old** `verdict` contract — rewriting them is explicitly deferred to the end of the roadmap (`IMPLEMENTATION.md` Phase 5), once the system's shape has stopped changing, rather than rewritten twice.
 
@@ -179,15 +181,17 @@ ai-qa-agent/
 ├── IMPLEMENTATION.md       # Task-by-task build spec (source of truth for what's built and in what order)
 ├── mock_pipeline/          # Simulated Big Data pipeline + failure injection
 ├── agent_tools/            # SQL validator, log analyser, schema comparator + FastAPI server
-├── agent/                  # Claude tool-use loop, deterministic severity classifier, incident records
+├── agent/                  # Claude tool-use loop, severity classifier, incident records, Slack client/blocks/verify, runbook selection, evidence bundle
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's JSON Schema
+├── scripts/                # first-15-minutes.sh, incident_metrics.py
 ├── tests/
-│   ├── pytest/             # Unit/regression tests for tools, severity, incidents, and agent response building
+│   ├── pytest/             # Unit/regression tests for every module above
+│   ├── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
 │   └── robot/              # Keyword-driven E2E validation checks
-├── n8n_workflows/          # Importable n8n workflow JSON
-├── docs/                   # INVENTORY.md (from-source repo inventory) + the live demo (pre-triage contract; see Phase status)
-├── reports/                # Test output + persisted incident records
+├── n8n_workflows/          # Importable n8n workflow JSON (Slack posting lives in agent/, not here — see docs/workflow-map.md)
+├── docs/                   # INVENTORY.md, workflow-map.md, runbooks/ + the live demo (pre-triage contract; see Phase status)
+├── reports/                # Test output, persisted incidents, evidence bundles, stub Slack payloads
 ├── docker-compose.yml
 └── .env.example
 ```
