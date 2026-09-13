@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import agent as agent_module
+from agent import evidence as evidence_module
 from agent import incident as incident_module
 from agent import slack_client as slack_client_module
 from agent.agent import app, build_response
@@ -31,6 +32,11 @@ SIGNING_SECRET = "test-signing-secret"
 def incidents_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(incident_module, "INCIDENTS_DIR", tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def evidence_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence_module, "EVIDENCE_DIR", tmp_path / "evidence")
 
 
 @pytest.fixture(autouse=True)

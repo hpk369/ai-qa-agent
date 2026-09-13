@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from agent.evidence import collect_evidence
 from agent.incident import Incident, load, open_incident, persist
 from agent.prompts import SYNTHESIS_PROMPT, SYSTEM_PROMPT
 from agent.runbooks import select_runbook
@@ -79,6 +80,29 @@ def _checks_performed(called_tools: set[str]) -> list[str]:
     return [short for tool, short in TOOL_SHORT_NAMES if tool in called_tools]
 
 
+def _attach_evidence(incident: Incident, pipeline_event: dict[str, Any]) -> None:
+    """
+    Collect the evidence bundle (agent.evidence) for a newly opened
+    incident and set incident.evidence to the resulting artifact paths.
+    Never raises — a run that correctly opened an incident must not fail
+    just because evidence collection had trouble; a missing/failed
+    collector already degrades to a "missing" manifest entry inside
+    collect_evidence itself, but this is a second layer of defense around
+    collect_evidence failing outright (e.g. disk full writing the bundle).
+    """
+    try:
+        bundle_dir = collect_evidence(
+            incident.incident_id,
+            source_table=pipeline_event.get("source_table", "src.transactions"),
+            target_table=pipeline_event.get("target_table", "tgt.transactions"),
+            log_path=pipeline_event.get("log_path", ""),
+        )
+        manifest = json.loads((bundle_dir / "manifest.json").read_text())
+        incident.evidence = [entry["path"] for entry in manifest["artifacts"] if "path" in entry]
+    except Exception as exc:  # noqa: BLE001 - evidence is supplementary, never blocks the incident
+        print(f"[agent] WARNING: evidence collection failed for {incident.incident_id}: {exc}")
+
+
 # ---------- Response assembly (pure — no network calls, unit-testable) ----------
 
 def build_response(
@@ -119,6 +143,7 @@ def build_response(
             "requires_approval": severity_result.severity in {"P1", "P2"},
         }
         incident = open_incident(signals, severity_result, run_context)
+        _attach_evidence(incident, pipeline_event)
         persist(incident)
         incident_dict = incident.to_dict()
 
