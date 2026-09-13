@@ -1,0 +1,15 @@
+# Optional — only needed for spark_jobs/cx_customer_load.py and its tests
+# (tests/pytest/test_cx_customer_load.py skips gracefully without this
+# installed, via pytest.importorskip). Not part of the lite profile's
+# dependency set; this is Hadoop-profile-only.
+#
+# Needs a JDK (11 or 17 is Spark 3.5.x's supported range; this was
+# developed against OpenJDK 21 locally without issue, but pin to 17 for
+# anything production-facing).
+#
+# If `pip install pyspark` fails while building a wheel with something
+# like `AttributeError: install_layout` from distutils/setuptools, that's
+# a known incompatibility between pyspark's legacy setup.py and
+# setuptools >= 60 — install into a venv with an older setuptools first:
+#   pip install "setuptools<60" wheel && pip install pyspark==3.5.1
+pyspark==3.5.1

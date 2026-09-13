@@ -133,15 +133,42 @@ avoid that. It needs a live internet connection to Maven Central
 runs, pre-populate the `hive_jdbc_driver` volume with
 `postgresql-42.7.3.jar` some other way before starting `hive-metastore`.
 
-## T2.4 — Spark transform (not yet written)
+## T2.4 — Spark transform
 
-Planned: `spark_jobs/cx_customer_load.py`. Unlike T2.2/T2.3, this one
-*can* be genuinely tested in this sandbox — PySpark runs fine in local
-mode without HDFS/YARN (Java 21 + a `setuptools<60` venv were enough to
-get `pyspark` installed and running a local Spark session here), so the
-transformation logic itself (dedup, SCD handling, normalisation, PII
-masking) will be tested for real before being submitted with
-`--master yarn`, even though the YARN submission path itself can't be.
+`spark_jobs/cx_customer_load.py`. Unlike T2.2/T2.3, this one *is*
+genuinely tested in this sandbox, not just written — PySpark runs fine in
+local mode without HDFS/YARN (Java 21 + a `setuptools<60` venv were
+enough to get `pyspark==3.5.1` installed and running local Spark sessions
+here; see `requirements-spark.txt` for why a plain `pip install pyspark`
+can fail with a distutils/setuptools error). The module is deliberately
+split into pure DataFrame transforms and a thin I/O layer specifically so
+the transforms could be tested this way:
+
+- **Actually run against a real local SparkSession** (`tests/pytest/test_cx_customer_load.py`,
+  17 tests, all passing): natural-key dedup keeping the newest
+  re-delivered version, date normalisation across three source formats,
+  currency conversion to USD (and a null, not a silently wrong number,
+  for an unrecognised currency), PII-masking emails to `j***@example.com`
+  form, and — the one most worth having gotten right — a full SCD Type 2
+  walk across three simulated days: new customers, a changed attribute
+  correctly closing out the old record and opening a new one with the
+  right `effective_date`/`end_date`, an unchanged attribute correctly
+  producing *no* new version, and history/untouched-current rows
+  surviving a load with no activity at all.
+- **Written, not run:** `read_source`/`read_existing_dim`/`main` — the
+  actual `spark.table(...)` reads and `saveAsTable(...)` writes need a
+  real Hive metastore and HDFS.
+
+```bash
+spark-submit --master yarn spark_jobs/cx_customer_load.py --load-date 2026-09-13
+```
+
+Run the tested half yourself without any of the Hadoop stack:
+
+```bash
+pip install -r requirements-spark.txt
+pytest tests/pytest/test_cx_customer_load.py -v
+```
 
 ## T2.5 — Port validation (not yet written)
 
