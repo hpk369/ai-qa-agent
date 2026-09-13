@@ -105,10 +105,14 @@ process_slack_action()
      re-opening + mirroring to #etl-prod-p1]
 ```
 
-## Human setup this implies (once the Phase 1 prerequisites exist)
+## Human setup this implies
 
 Point the Slack app's **Interactivity & Shortcuts** Request URL at
 `{PUBLIC_WEBHOOK_BASE}/slack/action` on the **agent server** (port 8001),
 not at n8n (port 5678) — this is the one place the deployment topology
 differs from a naive reading of `IMPLEMENTATION.md`'s literal T1.4 text,
 and is the amendment flagged and agreed on before this task started.
+
+For the full step-by-step (creating the workspace, the app manifest to
+use, where every `.env` value comes from), see
+[`docs/PHASE1_SETUP.md`](PHASE1_SETUP.md).
