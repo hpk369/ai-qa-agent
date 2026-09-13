@@ -73,14 +73,20 @@ class SlackClient:
         self.channel_p1 = channel_p1 or os.getenv("SLACK_CHANNEL_P1", "")
         self.channel_changes = channel_changes or os.getenv("SLACK_CHANNEL_CHANGES", "")
         self.channel_daily = channel_daily or os.getenv("SLACK_CHANNEL_DAILY", "")
-        self._stub_seq: dict[str, int] = {}
 
     # ---------- low-level transport ----------
 
     def _stub_call(self, method: str, payload: dict, incident_id: str) -> dict:
+        """
+        Sequence number is derived from what's already on disk, not an
+        in-memory counter — a fresh SlackClient() is created on most calls
+        (notify_slack, record_approval_decision), so per-instance state
+        would silently reset and overwrite earlier stub files for the
+        same incident.
+        """
         STUB_DIR.mkdir(parents=True, exist_ok=True)
-        seq = self._stub_seq.get(incident_id, 0) + 1
-        self._stub_seq[incident_id] = seq
+        existing = list(STUB_DIR.glob(f"{incident_id}-*.json"))
+        seq = len(existing) + 1
 
         record = {"method": method, "payload": payload}
         path = STUB_DIR / f"{incident_id}-{seq}.json"
@@ -177,11 +183,11 @@ class SlackClient:
         }
         self._call("chat.update", payload, incident.incident_id)
 
-    def mirror_p1(self, incident: Incident, blocks: list[dict], text: str) -> str | None:
-        """P1 only — mirror to #etl-prod-p1 with <!here>. Returns None for
-        any other severity rather than posting nothing silently wrong."""
-        if incident.severity != "P1":
-            return None
+    def mirror_to_p1(self, incident: Incident, blocks: list[dict], text: str) -> str:
+        """Unconditionally post to #etl-prod-p1 with <!here>. mirror_p1
+        gates this on severity == P1; an escalate decision (T1.5) calls
+        this directly to force P1-channel visibility regardless of the
+        incident's actual severity."""
         payload = {
             "channel": self.channel_p1,
             "blocks": blocks,
@@ -189,6 +195,13 @@ class SlackClient:
         }
         data = self._call("chat.postMessage", payload, incident.incident_id)
         return data["ts"]
+
+    def mirror_p1(self, incident: Incident, blocks: list[dict], text: str) -> str | None:
+        """P1 only — mirror to #etl-prod-p1 with <!here>. Returns None for
+        any other severity rather than posting nothing silently wrong."""
+        if incident.severity != "P1":
+            return None
+        return self.mirror_to_p1(incident, blocks, text)
 
     def post_change_log(self, incident: Incident, action: str, approver: str) -> str:
         """Post a decision (approved/rejected/escalated/executed/...) to
