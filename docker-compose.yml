@@ -140,12 +140,102 @@ services:
       - ./reports:/qa/reports
       - ./tests:/qa/tests
 
-  # ── Hadoop profile: HDFS/YARN/Hive/Spark services land here in T2.2-T2.4.
-  # Not yet added — this commit (T2.1) only establishes the profile split
-  # itself. `docker compose --profile hadoop up` today brings up only the
-  # shared infra above (postgres/zookeeper/kafka); it is not yet a
-  # complete stack. See docs/hadoop-stack.md once T2.2 lands.
+  # ── Hadoop profile: HDFS + YARN, single-node (T2.2). Hive (T2.3) and
+  # the Spark transform (T2.4) land in later commits. See
+  # docs/hadoop-stack.md for acceptance checks and the honesty note on
+  # what has and hasn't actually been run — image pulls are blocked in
+  # the sandbox this was written in, so this is config-validated
+  # (`docker compose config`) but not run end-to-end anywhere yet.
+  namenode:
+    image: apache/hadoop:3
+    hostname: namenode
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    # Format on first run only (detected by absence of the name dir's
+    # `current/` subdirectory) — reformatting an already-formatted
+    # NameNode on every restart would orphan the DataNode's blocks.
+    command: >
+      bash -c "if [ ! -d /opt/hadoop/data/nameNode/current ]; then
+      hdfs namenode -format -force -nonInteractive; fi &&
+      hdfs namenode"
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+      - namenode_data:/opt/hadoop/data/nameNode
+    ports:
+      - "9870:9870" # NameNode web UI
+      - "9000:9000" # fs.defaultFS
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  datanode:
+    image: apache/hadoop:3
+    hostname: datanode
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    command: ["hdfs", "datanode"]
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+      - datanode_data:/opt/hadoop/data/dataNode
+    depends_on:
+      namenode:
+        condition: service_healthy
+    ports:
+      - "9864:9864" # DataNode web UI
+
+  resourcemanager:
+    image: apache/hadoop:3
+    hostname: resourcemanager
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    command: ["yarn", "resourcemanager"]
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+    depends_on:
+      namenode:
+        condition: service_healthy
+      datanode:
+        condition: service_started
+    ports:
+      - "8088:8088" # ResourceManager web UI — acceptance check: applications list visible here
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  nodemanager:
+    image: apache/hadoop:3
+    hostname: nodemanager
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    command: ["yarn", "nodemanager"]
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+    depends_on:
+      resourcemanager:
+        condition: service_healthy
+    ports:
+      - "8042:8042" # NodeManager web UI
 
 volumes:
   postgres_data:
   n8n_data:
+  namenode_data:
+  datanode_data:
