@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI QA Agent — Big Data Pipeline Monitor</title>
+  <title>ETL Production Support Triage Agent — Live Demo</title>
   <style>
     :root {
       --bg: #0d1117;
@@ -18,9 +18,11 @@
       --yellow: #d29922;
       --purple: #bc8cff;
       --orange: #ffa657;
-      --cyan: #39d353;
+      --white: #c9d1d9;
       --radius: 8px;
       --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      /* severity colors — must match agent/slack_blocks.py's SEVERITY_EMOJI mapping */
+      --p1: #f85149; --p2: #ffa657; --p3: #d29922; --p4: #8b949e; --resolved: #3fb950;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -39,6 +41,7 @@
       align-items: center;
       gap: 12px;
       background: var(--surface);
+      flex-wrap: wrap;
     }
     .logo {
       width: 32px; height: 32px;
@@ -47,8 +50,13 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 16px;
     }
-    header h1 { font-size: 1.1rem; font-weight: 600; }
-    header span { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+    header h1 { font-size: 1.05rem; font-weight: 600; }
+    header .sub { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+    header a.src-link {
+      color: var(--accent); font-size: 0.8rem; text-decoration: none;
+      border: 1px solid var(--border); padding: 4px 10px; border-radius: 12px;
+    }
+    header a.src-link:hover { border-color: var(--accent); }
     .badge {
       font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;
       background: rgba(88,166,255,0.15); color: var(--accent);
@@ -56,10 +64,24 @@
       font-weight: 600; letter-spacing: 0.5px;
     }
 
+    /* ─── Honesty banner ─── */
+    .banner {
+      max-width: 1280px; margin: 16px auto 0; padding: 0 32px;
+    }
+    .banner-inner {
+      background: rgba(210,153,34,0.08); border: 1px solid rgba(210,153,34,0.3);
+      border-radius: var(--radius); padding: 10px 16px;
+      font-size: 0.78rem; color: var(--white);
+    }
+    .banner-inner strong { color: var(--yellow); }
+    .banner-inner a { color: var(--accent); }
+
     /* ─── Layout ─── */
-    main { max-width: 1280px; margin: 0 auto; padding: 32px; }
+    main { max-width: 1280px; margin: 0 auto; padding: 20px 32px 48px; }
     .grid { display: grid; grid-template-columns: 340px 1fr; gap: 24px; }
+    .grid > * { min-width: 0; } /* grid children default to min-width:auto, letting content (the ASCII diagram, tool-card grids) force tracks wider than the viewport */
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    .arch { overflow-x: auto; } /* the ASCII diagram itself may still exceed a narrow column; scroll it rather than the page */
 
     /* ─── Panel ─── */
     .panel {
@@ -83,8 +105,8 @@
     /* ─── Architecture diagram ─── */
     .arch {
       font-family: var(--mono);
-      font-size: 0.72rem;
-      line-height: 1.7;
+      font-size: 0.7rem;
+      line-height: 1.65;
       color: var(--muted);
       white-space: pre;
     }
@@ -97,6 +119,7 @@
     .controls { display: flex; flex-direction: column; gap: 16px; }
     label { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 6px; font-weight: 500; }
     .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mode-grid > * { min-width: 0; }
     .mode-btn {
       padding: 10px 12px;
       background: var(--surface2);
@@ -113,11 +136,6 @@
       border-color: var(--accent);
       background: rgba(88,166,255,0.12);
       color: var(--accent);
-    }
-    .mode-btn.active.fail-mode {
-      border-color: var(--red);
-      background: rgba(248,81,73,0.1);
-      color: var(--red);
     }
     .mode-icon { font-size: 1rem; display: block; margin-bottom: 2px; }
     .mode-name { font-weight: 600; }
@@ -183,7 +201,7 @@
       line-height: 1.8;
       padding: 16px;
       min-height: 200px;
-      max-height: 380px;
+      max-height: 340px;
       overflow-y: auto;
       color: var(--muted);
     }
@@ -201,6 +219,7 @@
 
     /* ─── Tool cards ─── */
     .tool-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    .tool-cards > * { min-width: 0; }
     @media (max-width: 700px) { .tool-cards { grid-template-columns: 1fr; } }
     .tool-card {
       background: var(--surface2);
@@ -225,8 +244,8 @@
     .tc-metric { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
     .tc-metric span { color: var(--text); font-weight: 600; }
 
-    /* ─── Verdict ─── */
-    .verdict-card {
+    /* ─── Severity / incident card ─── */
+    .incident-card {
       border-radius: var(--radius);
       padding: 20px 24px;
       margin-top: 20px;
@@ -234,34 +253,87 @@
       display: none;
       animation: fadeIn 0.4s ease;
     }
-    .verdict-card.pass { border-color: var(--green); background: rgba(63,185,80,0.07); }
-    .verdict-card.fail { border-color: var(--red); background: rgba(248,81,73,0.07); }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .verdict-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-    .verdict-emoji { font-size: 2rem; }
-    .verdict-label { font-size: 1.5rem; font-weight: 800; }
-    .verdict-label.pass { color: var(--green); }
-    .verdict-label.fail { color: var(--red); }
-    .verdict-meta { font-size: 0.78rem; color: var(--muted); }
-    .verdict-root { font-size: 0.88rem; margin: 12px 0 8px; color: var(--text); }
-    .verdict-details { list-style: none; padding: 0; }
-    .verdict-details li {
-      font-size: 0.8rem; color: var(--muted);
-      padding: 4px 0 4px 18px; position: relative;
+    .incident-card.clean { border-color: var(--green); background: rgba(63,185,80,0.07); }
+    .incident-card.P1 { border-color: var(--p1); background: rgba(248,81,73,0.07); }
+    .incident-card.P2 { border-color: var(--p2); background: rgba(255,166,87,0.07); }
+    .incident-card.P3 { border-color: var(--p3); background: rgba(210,153,34,0.07); }
+    .incident-card.P4 { border-color: var(--p4); background: rgba(139,148,158,0.07); }
+    .incident-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .incident-emoji { font-size: 1.8rem; }
+    .incident-label { font-size: 1.3rem; font-weight: 800; }
+    .incident-label.clean { color: var(--green); }
+    .incident-label.P1 { color: var(--p1); } .incident-label.P2 { color: var(--p2); }
+    .incident-label.P3 { color: var(--p3); } .incident-label.P4 { color: var(--p4); }
+    .incident-meta { font-size: 0.75rem; color: var(--muted); font-family: var(--mono); }
+    .status-pill {
+      margin-left: auto; font-size: 0.68rem; padding: 3px 10px; border-radius: 12px;
+      border: 1px solid var(--border); font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; color: var(--muted);
     }
-    .verdict-details li::before { content: "•"; position: absolute; left: 6px; color: var(--red); }
-    .verdict-action {
+    .status-pill.resolved { color: var(--resolved); border-color: var(--resolved); background: rgba(63,185,80,0.12); }
+    .status-pill.remediating, .status-pill.verifying { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,0.12); }
+    .incident-summary { font-size: 0.88rem; margin: 12px 0; color: var(--text); }
+    .incident-rationale {
+      font-size: 0.75rem; color: var(--muted); font-family: var(--mono);
+      background: var(--surface2); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px;
+    }
+    .incident-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin: 12px 0; }
+    .incident-fields > * { min-width: 0; }
+    @media (max-width: 480px) { .incident-fields { grid-template-columns: 1fr; } }
+    .field-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .field-value { font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    .incident-action {
       margin-top: 12px; padding: 10px 14px;
       background: var(--surface2); border-radius: 6px;
       font-size: 0.8rem; color: var(--text);
       border-left: 3px solid var(--yellow);
     }
-    .verdict-confidence { font-size: 0.75rem; color: var(--muted); margin-top: 10px; }
+    .incident-runbook { margin-top: 8px; font-size: 0.78rem; }
+    .incident-runbook a { color: var(--accent); }
+    .incident-confidence { font-size: 0.75rem; color: var(--muted); margin-top: 12px; }
     .conf-bar {
       height: 4px; background: var(--border); border-radius: 2px;
       margin-top: 4px; overflow: hidden;
     }
-    .conf-fill { height: 100%; border-radius: 2px; transition: width 1s ease; }
+    .conf-fill { height: 100%; border-radius: 2px; transition: width 1s ease; background: var(--accent); }
+
+    /* ─── Slack preview ─── */
+    .slack-preview { margin-top: 20px; display: none; animation: fadeIn 0.4s ease; }
+    .slack-msg {
+      background: #1a1d21; border: 1px solid #35373b; border-radius: 8px;
+      padding: 14px 16px; font-size: 0.85rem; color: #d1d2d3;
+    }
+    .slack-msg-header { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1rem; margin-bottom: 10px; color: #fff; }
+    .slack-msg-section { margin: 8px 0; font-size: 0.85rem; }
+    .slack-msg-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; margin: 10px 0; }
+    .slack-msg-fields > * { min-width: 0; }
+    @media (max-width: 480px) { .slack-msg-fields { grid-template-columns: 1fr; } }
+    .slack-field-label { font-weight: 700; color: #fff; }
+    .slack-msg hr { border: none; border-top: 1px solid #35373b; margin: 10px 0; }
+    .slack-msg-context { font-size: 0.72rem; color: #949494; margin-top: 10px; }
+    .slack-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .slack-btn {
+      padding: 7px 16px; border-radius: 5px; font-size: 0.82rem; font-weight: 600;
+      cursor: pointer; border: 1px solid #565856; background: #2c2e33; color: #d1d2d3;
+      transition: all 0.15s;
+    }
+    .slack-btn:hover { border-color: #8f8f8f; }
+    .slack-btn.approve { background: #2c5c33; border-color: #3fb950; color: #a3e6ab; }
+    .slack-btn.approve:hover { background: #327239; }
+    .slack-btn.reject { background: #5c2c2c; border-color: #f85149; color: #ffb3af; }
+    .slack-btn.reject:hover { background: #723232; }
+    .slack-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .slack-thread { margin-top: 10px; padding-left: 14px; border-left: 2px solid #35373b; }
+    .thread-reply { font-size: 0.78rem; padding: 5px 0; color: #b5b6b7; }
+    .thread-reply .actor { font-weight: 700; color: #fff; }
+    .thread-reply .ts { color: #6e7075; margin-left: 6px; font-size: 0.7rem; }
+    .verify-btn {
+      margin-top: 12px; padding: 8px 16px; border-radius: 6px; font-size: 0.82rem; font-weight: 700;
+      cursor: pointer; border: 1px solid var(--accent); background: rgba(88,166,255,0.12); color: var(--accent);
+    }
+    .verify-btn:hover { background: rgba(88,166,255,0.2); }
+    .slack-note { font-size: 0.7rem; color: var(--muted); margin-top: 10px; }
 
     /* ─── Test results ─── */
     .test-results { margin-top: 20px; display: none; animation: fadeIn 0.4s ease; }
@@ -310,11 +382,23 @@
 <body>
 
 <header>
-  <div class="logo">🤖</div>
-  <h1>AI QA Agent</h1>
-  <span class="badge">DEMO</span>
-  <span>Big Data Pipeline Monitor · n8n + Claude + Robot Framework + pytest</span>
+  <div class="logo">🚨</div>
+  <h1>ETL Production Support Triage Agent</h1>
+  <span class="badge">LIVE DEMO</span>
+  <a class="src-link" href="https://github.com/hpk369/ai-qa-agent" target="_blank" rel="noopener">View source →</a>
 </header>
+
+<div class="banner">
+  <div class="banner-inner">
+    <strong>What this is:</strong> a client-side simulation of the real severity classification and incident logic in
+    <a href="https://github.com/hpk369/ai-qa-agent/blob/main/agent/severity.py" target="_blank" rel="noopener">agent/severity.py</a>
+    and <a href="https://github.com/hpk369/ai-qa-agent/blob/main/agent/slack_blocks.py" target="_blank" rel="noopener">agent/slack_blocks.py</a> —
+    the severities, rationale text, and Slack message shown below are the actual values those modules produce for each mode's signals
+    (see <a href="https://github.com/hpk369/ai-qa-agent/blob/main/tests/pytest/test_agent_response.py" target="_blank" rel="noopener">the tests</a> that pin them),
+    reproduced here in JS so this page needs no backend on GitHub Pages. The Claude tool-use call itself is not live in this demo —
+    see <a href="https://github.com/hpk369/ai-qa-agent#phase-status" target="_blank" rel="noopener">Phase status</a> in the README for exactly what is and isn't running live anywhere in this project.
+  </div>
+</div>
 
 <main>
   <div class="grid">
@@ -330,34 +414,35 @@
        │
   [<span class="hl">n8n Trigger</span>]
        │
-  [<span class="hl2">AI Agent</span>] ◄── <span class="hl2">Claude API</span>
-       │
+  [<span class="hl2">Triage Agent</span>] ◄── <span class="hl2">Claude API</span>
+       │   (reports signals only)
   ┌────┴──────────┐
   │               │               │
 <span class="hl">[SQL Valid.]</span>  <span class="hl">[Log Analyser]</span>  <span class="hl">[Schema Cmp.]</span>
   │               │               │
   └───────┬────────────────────────┘
           │
-   [<span class="hl2">LLM Synthesis</span>]
-    verdict + root cause
+  [<span class="hl2">Severity Classifier</span>]
+   deterministic — config/severity.yml
           │
     ┌─────┴──────┐
-   PASS        FAIL
+  clean       incident (P1–P4)
     │            │
  <span class="hl3">[Robot FW]</span>    <span class="hl4">[pytest]</span>
     │            │
     └────┬───────┘
          │
-  [<span class="hl">Slack</span> + <span class="hl">Jenkins</span>]</div>
+  [<span class="hl">Slack Bot</span>] + [<span class="hl">Jenkins</span>]
+   threaded · Approve/Reject/Escalate</div>
           <div class="tech-pills">
             <span class="pill">n8n</span>
             <span class="pill">Claude API</span>
             <span class="pill">FastAPI</span>
+            <span class="pill">Slack Block Kit</span>
             <span class="pill">Robot Framework</span>
             <span class="pill">pytest</span>
             <span class="pill">Kafka</span>
             <span class="pill">PostgreSQL</span>
-            <span class="pill">Docker</span>
           </div>
         </div>
       </div>
@@ -373,30 +458,27 @@
                 <button class="mode-btn active" data-mode="none">
                   <span class="mode-icon">✅</span>
                   <span class="mode-name">Clean Run</span>
-                  <span class="mode-desc">All checks pass</span>
+                  <span class="mode-desc">No incident</span>
                 </button>
-                <button class="mode-btn fail-mode" data-mode="row_drop" style="display:none"><!-- placeholder --></button>
-              </div>
-              <div class="mode-grid" style="margin-top:8px">
                 <button class="mode-btn" data-mode="row_drop">
                   <span class="mode-icon">📉</span>
                   <span class="mode-name">Row Drop</span>
-                  <span class="mode-desc">40% rows missing</span>
+                  <span class="mode-desc">40% rows missing → P2</span>
                 </button>
                 <button class="mode-btn" data-mode="schema_drift">
                   <span class="mode-icon">🔀</span>
                   <span class="mode-name">Schema Drift</span>
-                  <span class="mode-desc">Column renamed</span>
+                  <span class="mode-desc">Column renamed → P1</span>
                 </button>
                 <button class="mode-btn" data-mode="null_spike">
                   <span class="mode-icon">🕳️</span>
                   <span class="mode-name">Null Spike</span>
-                  <span class="mode-desc">35% nulls</span>
+                  <span class="mode-desc">35% nulls → P3</span>
                 </button>
                 <button class="mode-btn" data-mode="latency">
                   <span class="mode-icon">⏱️</span>
                   <span class="mode-name">Kafka Lag</span>
-                  <span class="mode-desc">15k msg behind</span>
+                  <span class="mode-desc">15k msgs behind → P2</span>
                 </button>
               </div>
             </div>
@@ -423,29 +505,29 @@
             <div class="step" id="step-tools">
               <div class="step-dot">2</div>
               <div class="step-content">
-                <div class="step-title">Claude Calls QA Tools</div>
+                <div class="step-title">Claude Calls Triage Tools</div>
                 <div class="step-sub" id="step-tools-sub">sql_validator · log_analyser · schema_comparator</div>
               </div>
             </div>
             <div class="step" id="step-synth">
               <div class="step-dot">3</div>
               <div class="step-content">
-                <div class="step-title">LLM Synthesis</div>
-                <div class="step-sub" id="step-synth-sub">Root cause analysis + verdict</div>
+                <div class="step-title">Severity Classified</div>
+                <div class="step-sub" id="step-synth-sub">Deterministic — same signals, same call, every time</div>
               </div>
             </div>
             <div class="step" id="step-tests">
               <div class="step-dot">4</div>
               <div class="step-content">
-                <div class="step-title">Test Framework Invoked</div>
-                <div class="step-sub" id="step-tests-sub">PASS → Robot Framework · FAIL → pytest</div>
+                <div class="step-title">Validation Framework Invoked</div>
+                <div class="step-sub" id="step-tests-sub">Clean → Robot Framework · Incident → pytest</div>
               </div>
             </div>
             <div class="step" id="step-notify">
               <div class="step-dot">5</div>
               <div class="step-content">
-                <div class="step-title">Slack + Jenkins Notified</div>
-                <div class="step-sub" id="step-notify-sub">QA summary dispatched</div>
+                <div class="step-title">Posted to Slack</div>
+                <div class="step-sub" id="step-notify-sub">Incident record opened, threaded, awaiting response</div>
               </div>
             </div>
           </div>
@@ -463,8 +545,8 @@
         <div class="panel-body" style="padding:12px 16px">
           <div class="agent-log" id="agentLog">
             <div class="idle-placeholder">
-              <div class="idle-icon">🤖</div>
-              <div class="idle-text">Select a failure mode and click <strong>Run Pipeline</strong> to watch<br>the AI agent reason over your Big Data pipeline in real time.</div>
+              <div class="idle-icon">🚨</div>
+              <div class="idle-text">Select a failure mode and click <strong>Run Pipeline</strong> to watch<br>signals get classified into a severity — and, on an incident, try the Approve/Reject/Escalate buttons below.</div>
             </div>
           </div>
         </div>
@@ -479,7 +561,7 @@
           </div>
           <div class="tc-metric">Source rows: <span id="sql-src">—</span></div>
           <div class="tc-metric">Target rows: <span id="sql-tgt">—</span></div>
-          <div class="tc-metric">Row drop: <span id="sql-drop">—</span></div>
+          <div class="tc-metric">Row variance: <span id="sql-drop">—</span></div>
           <div class="tc-metric">Null rate (cust_id): <span id="sql-null">—</span></div>
         </div>
         <div class="tool-card" id="card-log">
@@ -506,21 +588,35 @@
       <!-- Run meta -->
       <div class="run-meta" id="runMeta"></div>
 
-      <!-- Verdict -->
-      <div class="verdict-card" id="verdictCard">
-        <div class="verdict-header">
-          <div class="verdict-emoji" id="verdictEmoji"></div>
+      <!-- Incident record -->
+      <div class="incident-card" id="incidentCard">
+        <div class="incident-header">
+          <div class="incident-emoji" id="incidentEmoji"></div>
           <div>
-            <div class="verdict-label" id="verdictLabel"></div>
-            <div class="verdict-meta" id="verdictMeta"></div>
+            <div class="incident-label" id="incidentLabel"></div>
+            <div class="incident-meta" id="incidentMeta"></div>
           </div>
+          <div class="status-pill" id="statusPill"></div>
         </div>
-        <div class="verdict-root" id="verdictRoot"></div>
-        <ul class="verdict-details" id="verdictDetails"></ul>
-        <div class="verdict-action" id="verdictAction"></div>
-        <div class="verdict-confidence">
+        <div class="incident-rationale" id="incidentRationale" style="display:none"></div>
+        <div class="incident-summary" id="incidentSummary"></div>
+        <div class="incident-fields" id="incidentFields"></div>
+        <div class="incident-action" id="incidentAction" style="display:none"></div>
+        <div class="incident-runbook" id="incidentRunbook" style="display:none"></div>
+        <div class="incident-confidence" id="incidentConfidenceWrap" style="display:none">
           Confidence: <span id="confPct"></span>
           <div class="conf-bar"><div class="conf-fill" id="confFill"></div></div>
+        </div>
+      </div>
+
+      <!-- Slack preview -->
+      <div class="slack-preview" id="slackPreview">
+        <div class="panel">
+          <div class="panel-header">💬 #etl-prod-alerts — Slack Message Preview</div>
+          <div class="panel-body">
+            <div class="slack-msg" id="slackMsg"></div>
+            <div class="slack-note">This is a static rendering of the exact Block Kit structure <code>agent/slack_blocks.py</code> builds and <code>agent/slack_client.py</code> posts — try the buttons below.</div>
+          </div>
         </div>
       </div>
 
@@ -548,10 +644,9 @@
 <script>
   let selectedMode = 'none';
   let running = false;
+  let currentIncident = null; // mutable state for the interactive approval demo
 
-  // Mode buttons
   document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
-    if (btn.dataset.mode === 'row_drop' && btn.classList.contains('active') && btn.style.display === 'none') return;
     btn.addEventListener('click', () => {
       if (running) return;
       document.querySelectorAll('.mode-btn[data-mode]').forEach(b => b.classList.remove('active'));
@@ -560,16 +655,12 @@
     });
   });
 
-  // Remove the hidden placeholder button
-  document.querySelector('.mode-btn[data-mode="row_drop"][style]')?.remove();
-
   function ts() {
     return new Date().toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
   }
 
   function appendLog(text, cls = 'log-dim') {
     const log = document.getElementById('agentLog');
-    // Clear idle placeholder on first message
     if (log.querySelector('.idle-placeholder')) log.innerHTML = '';
     const line = document.createElement('div');
     line.className = 'log-line';
@@ -617,55 +708,188 @@
 
   function resetUI() {
     document.getElementById('agentLog').innerHTML = '';
-    document.getElementById('verdictCard').style.display = 'none';
+    document.getElementById('incidentCard').style.display = 'none';
+    document.getElementById('slackPreview').style.display = 'none';
     document.getElementById('testResults').style.display = 'none';
     document.getElementById('runMeta').style.display = 'none';
+    currentIncident = null;
     ['sql','log','schema'].forEach(k => {
       document.getElementById('card-' + k).className = 'tool-card';
       document.getElementById('status-' + k).className = 'tc-status idle';
       document.getElementById('status-' + k).textContent = 'IDLE';
     });
-    document.getElementById('sql-src').textContent =
-    document.getElementById('sql-tgt').textContent =
-    document.getElementById('sql-drop').textContent =
-    document.getElementById('sql-null').textContent =
-    document.getElementById('log-err').textContent =
-    document.getElementById('log-warn').textContent =
-    document.getElementById('log-lag').textContent =
-    document.getElementById('sch-add').textContent =
-    document.getElementById('sch-rm').textContent =
-    document.getElementById('sch-ren').textContent =
-    document.getElementById('sch-type').textContent = '—';
-    ['step-trigger','step-tools','step-synth','step-tests','step-notify'].forEach(id => {
+    ['sql-src','sql-tgt','sql-drop','sql-null','log-err','log-warn','log-lag','sch-add','sch-rm','sch-ren','sch-type']
+      .forEach(id => document.getElementById(id).textContent = '—');
+    const defaultSubs = {
+      'step-trigger': 'Waiting for trigger…',
+      'step-tools': 'sql_validator · log_analyser · schema_comparator',
+      'step-synth': 'Deterministic — same signals, same call, every time',
+      'step-tests': 'Clean → Robot Framework · Incident → pytest',
+      'step-notify': 'Incident record opened, threaded, awaiting response',
+    };
+    ['step-trigger','step-tools','step-synth','step-tests','step-notify'].forEach((id, i) => {
       const el = document.getElementById(id);
       el.className = 'step';
-      const dot = el.querySelector('.step-dot');
-      dot.textContent = ['step-trigger','step-tools','step-synth','step-tests','step-notify']
-        .indexOf(id) + 1;
+      el.querySelector('.step-dot').textContent = i + 1;
+      document.getElementById(id + '-sub').textContent = defaultSubs[id];
     });
   }
 
-  function showVerdict(data) {
-    const card = document.getElementById('verdictCard');
-    const isPass = data.verdict === 'PASS';
-    card.className = 'verdict-card ' + (isPass ? 'pass' : 'fail');
-    document.getElementById('verdictEmoji').textContent = isPass ? '✅' : '❌';
-    const label = document.getElementById('verdictLabel');
-    label.textContent = data.verdict;
-    label.className = 'verdict-label ' + (isPass ? 'pass' : 'fail');
-    document.getElementById('verdictMeta').textContent =
-      `Routed to: ${data.test_framework}  ·  Confidence: ${(data.confidence * 100).toFixed(0)}%`;
-    document.getElementById('verdictRoot').textContent = '🔎 ' + data.root_cause;
-    const ul = document.getElementById('verdictDetails');
-    ul.innerHTML = data.details.map(d => `<li>${d}</li>`).join('');
-    document.getElementById('verdictAction').innerHTML = '💡 <strong>Recommended action:</strong> ' + data.recommended_action;
-    document.getElementById('confPct').textContent = (data.confidence * 100).toFixed(0) + '%';
+  const SEVERITY_EMOJI = { P1: '🔴', P2: '🟠', P3: '🟡', P4: '⚪' };
+  const RUNBOOK_TITLES = {
+    'docs/runbooks/RB-001-row-shortfall.md': 'RB-001 — Row Shortfall',
+    'docs/runbooks/RB-002-schema-drift.md': 'RB-002 — Schema Drift',
+    'docs/runbooks/RB-003-null-spike.md': 'RB-003 — Null Spike',
+    'docs/runbooks/RB-004-consumer-lag.md': 'RB-004 — Kafka Consumer Lag',
+  };
+  const REPO_BASE = 'https://github.com/hpk369/ai-qa-agent/blob/main/';
+
+  function severityEmoji(inc) {
+    return inc.status === 'resolved' ? '✅' : (SEVERITY_EMOJI[inc.severity] || '❗');
+  }
+
+  function showIncidentCard(inc) {
+    const card = document.getElementById('incidentCard');
+    card.className = 'incident-card ' + (inc.status === 'resolved' ? 'clean' : inc.severity);
+    document.getElementById('incidentEmoji').textContent = severityEmoji(inc);
+    const label = document.getElementById('incidentLabel');
+    label.textContent = inc.status === 'resolved' ? 'RESOLVED' : inc.severity;
+    label.className = 'incident-label ' + (inc.status === 'resolved' ? 'clean' : inc.severity);
+    document.getElementById('incidentMeta').textContent = `${inc.incident_id}  ·  detected by ${inc.detected_by}`;
+    const pill = document.getElementById('statusPill');
+    pill.textContent = inc.status;
+    pill.className = 'status-pill ' + inc.status;
+
+    const rat = document.getElementById('incidentRationale');
+    rat.style.display = 'block';
+    rat.textContent = inc.severity_rationale;
+
+    document.getElementById('incidentSummary').textContent = inc.impact_summary;
+
+    const fields = document.getElementById('incidentFields');
+    const rowsText = (inc.rows_loaded != null && inc.rows_expected != null)
+      ? `${inc.rows_loaded.toLocaleString()} / ${inc.rows_expected.toLocaleString()}` : 'n/a';
+    fields.innerHTML = [
+      ['Affected job', inc.affected_job],
+      ['Affected objects', inc.affected_objects.join(', ') || 'none'],
+      ['Rows loaded / expected', rowsText],
+      ['Requires approval', inc.requires_approval ? 'Yes' : 'No'],
+    ].map(([l, v]) => `<div><div class="field-label">${l}</div><div class="field-value">${v}</div></div>`).join('');
+
+    const action = document.getElementById('incidentAction');
+    if (inc.recommended_action) {
+      action.style.display = 'block';
+      action.innerHTML = `💡 <strong>Recommended action:</strong> ${inc.recommended_action}`;
+    } else { action.style.display = 'none'; }
+
+    const runbook = document.getElementById('incidentRunbook');
+    if (inc.runbook) {
+      runbook.style.display = 'block';
+      const title = RUNBOOK_TITLES[inc.runbook] || inc.runbook;
+      runbook.innerHTML = `📖 Runbook: <a href="${REPO_BASE + inc.runbook}" target="_blank" rel="noopener">${title}</a>`;
+    } else { runbook.style.display = 'none'; }
+
+    document.getElementById('incidentConfidenceWrap').style.display = 'block';
+    document.getElementById('confPct').textContent = (inc.confidence * 100).toFixed(0) + '%';
     const fill = document.getElementById('confFill');
-    fill.style.background = isPass ? 'var(--green)' : 'var(--red)';
     fill.style.width = '0%';
     card.style.display = 'block';
-    setTimeout(() => { fill.style.width = (data.confidence * 100) + '%'; }, 50);
+    setTimeout(() => { fill.style.width = (inc.confidence * 100) + '%'; }, 50);
   }
+
+  function slackFieldsHtml(inc) {
+    const rowsText = (inc.rows_loaded != null && inc.rows_expected != null)
+      ? `${inc.rows_loaded.toLocaleString()} / ${inc.rows_expected.toLocaleString()}` : 'n/a';
+    return [
+      ['Affected job', inc.affected_job],
+      ['Affected objects', inc.affected_objects.join(', ') || 'none'],
+      ['Rows loaded / expected', rowsText],
+      ['Detected by', inc.detected_by],
+      ['Confidence', (inc.confidence * 100).toFixed(0) + '%'],
+      ['Status', inc.status],
+    ].map(([l, v]) => `<div><span class="slack-field-label">${l}:</span><br>${v}</div>`).join('');
+  }
+
+  function renderSlackMessage(inc) {
+    const emoji = severityEmoji(inc);
+    const label = inc.status === 'resolved' ? 'RESOLVED' : inc.severity;
+    let html = `<div class="slack-msg-header">${emoji} ${label} — ${inc.incident_id}</div>`;
+    html += `<div class="slack-msg-section">${inc.impact_summary}</div>`;
+    html += `<div class="slack-msg-fields">${slackFieldsHtml(inc)}</div>`;
+    if (inc.root_cause) html += `<hr><div class="slack-msg-section"><strong>Root cause:</strong><br>${inc.root_cause}</div>`;
+    if (inc.recommended_action || inc.runbook) {
+      html += '<hr><div class="slack-msg-section">';
+      if (inc.recommended_action) html += `<strong>Recommended action:</strong><br>${inc.recommended_action}<br>`;
+      if (inc.runbook) html += `<strong>Runbook:</strong> <code>${inc.runbook}</code>`;
+      html += '</div>';
+    }
+    html += `<div class="slack-msg-context">Opened: ${inc.opened_at}  ·  Run ID: ${inc.run_id}`;
+    if (inc.mtta_seconds != null) html += `  ·  MTTA: ${inc.mtta_seconds}s`;
+    if (inc.mttr_seconds != null) html += `  ·  MTTR: ${inc.mttr_seconds}s`;
+    html += '</div>';
+
+    if (inc.requires_approval && inc.status === 'open') {
+      html += `<div class="slack-actions">
+        <button class="slack-btn approve" onclick="decide('approved')">Approve</button>
+        <button class="slack-btn reject" onclick="decide('rejected')">Reject</button>
+        <button class="slack-btn" onclick="decide('escalated')">Escalate</button>
+      </div>`;
+    } else if (!inc.requires_approval && inc.status === 'open') {
+      html += `<div class="slack-actions"><button class="verify-btn" onclick="verifyAndResolve()">Run Validation Suite &amp; Resolve</button></div>`;
+    } else if (inc.status === 'remediating') {
+      html += `<div class="slack-actions"><button class="verify-btn" onclick="verifyAndResolve()">Run Validation Suite &amp; Resolve</button></div>`;
+    } else if (inc.status === 'acknowledged') {
+      html += `<div class="slack-actions"><button class="verify-btn" onclick="verifyAndResolve()">Escalate for a different remediation &amp; Resolve</button></div>`;
+    }
+
+    if (inc.thread && inc.thread.length) {
+      html += '<div class="slack-thread">' + inc.thread.map(t =>
+        `<div class="thread-reply"><span class="actor">${t.actor}</span> ${t.text}<span class="ts">${t.ts}</span></div>`
+      ).join('') + '</div>';
+    }
+
+    document.getElementById('slackMsg').innerHTML = html;
+    document.getElementById('slackPreview').style.display = 'block';
+  }
+
+  function addThreadReply(text) {
+    currentIncident.thread = currentIncident.thread || [];
+    currentIncident.thread.push({ actor: 'You', text, ts: ts() });
+  }
+
+  window.decide = function(decision) {
+    if (!currentIncident) return;
+    const label = { approved: 'Approved', rejected: 'Rejected', escalated: 'Escalated' }[decision];
+    addThreadReply(`— ${label}`);
+    appendLog(`→ Slack button clicked: ${decision} — POST /slack/action (signature verified)`, 'log-info');
+
+    if (decision === 'approved') {
+      currentIncident.status = 'remediating';
+      appendLog('← record_approval_decision: status → remediating', 'log-result-pass');
+    } else if (decision === 'rejected') {
+      currentIncident.status = 'acknowledged';
+      appendLog('← record_approval_decision: status → acknowledged', 'log-dim');
+    } else if (decision === 'escalated') {
+      currentIncident.status = 'open';
+      addThreadReply('🔴 mirrored to #etl-prod-p1 with <!here>');
+      appendLog('← record_approval_decision: mirrored to #etl-prod-p1, status → open', 'log-result-fail');
+    }
+    showIncidentCard(currentIncident);
+    renderSlackMessage(currentIncident);
+  };
+
+  window.verifyAndResolve = function() {
+    if (!currentIncident) return;
+    appendLog('→ Re-running Robot Framework validation suite to confirm restoration…', 'log-info');
+    addThreadReply('Validation suite re-run — restoration confirmed ✅');
+    currentIncident.status = 'resolved';
+    currentIncident.mtta_seconds = currentIncident.mtta_seconds ?? Math.max(1, Math.round((Date.now() - currentIncident._openedAtMs) / 1000));
+    currentIncident.mttr_seconds = Math.max(1, Math.round((Date.now() - currentIncident._openedAtMs) / 1000));
+    addThreadReply(`RESOLVED — MTTA ${currentIncident.mtta_seconds}s, MTTR ${currentIncident.mttr_seconds}s (this demo's real elapsed time, not a canned number)`);
+    appendLog(`← resolve_incident: status → resolved, MTTA=${currentIncident.mtta_seconds}s MTTR=${currentIncident.mttr_seconds}s`, 'log-result-pass');
+    showIncidentCard(currentIncident);
+    renderSlackMessage(currentIncident);
+  };
 
   function showTestResults(data) {
     const isRobot = data.framework === 'Robot Framework';
@@ -696,30 +920,21 @@
     }
   }
 
-  function toolLabel(t) {
-    return {sql_validator:'sql_validator', log_analyser:'log_analyser', schema_comparator:'schema_comparator'}[t] || t;
-  }
+  function toolLabel(t) { return t; }
 
-  // ─── Static pipeline simulator (no backend required) ───
-  // Mirrors the FastAPI _stream_run() in docs/app.py so the demo
-  // works on GitHub Pages with zero server.
+  // ─── Scenario data ───
+  // Tool outputs mirror mock_pipeline/failures.py's real mock data; incident
+  // fields mirror agent/severity.py + agent/incident.py's actual output for
+  // these exact signals (see tests/pytest/test_agent_response.py).
   const BASE_ROWS = 100000;
   const SIM = {
     none: {
       sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
                 null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0},
                 status: 'PASS', issues: [] },
-      log:    { error_count: 0, warn_count: 0, errors: [], kafka_lag: 0,
-                status: 'PASS', issues: [] },
-      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
-                type_changes: [], status: 'PASS', issues: [] },
-      verdict: {
-        verdict: 'PASS',
-        root_cause: 'All QA checks passed — pipeline is healthy.',
-        details: [],
-        recommended_action: 'No action required. Pipeline completed within all tolerance thresholds.',
-        confidence: 0.98,
-      },
+      log:    { error_count: 0, warn_count: 0, errors: [], kafka_lag: 0, status: 'PASS', issues: [] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [], type_changes: [], status: 'PASS', issues: [] },
+      incident: null,
     },
     row_drop: {
       sql:    { source_count: BASE_ROWS, target_count: 60000, row_drop_pct: 40.0,
@@ -727,39 +942,45 @@
                 status: 'FAIL', issues: ['Row drop 40.0%'] },
       log:    { error_count: 1, warn_count: 5,
                 errors: ['ERROR: 40000 records dropped during deduplication stage'],
-                kafka_lag: 0, status: 'FAIL',
-                issues: ['ERROR: 40000 records dropped during deduplication stage'] },
-      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
-                type_changes: [], status: 'PASS', issues: [] },
-      verdict: {
-        verdict: 'FAIL',
-        root_cause: 'Target table has 40% fewer rows than source — likely a partition skew or silent deduplication error in the Spark job.',
-        details: ['Row drop 40.0% (threshold: 5%)',
-                  'ERROR: 40000 records dropped during deduplication stage',
-                  'WARN: Executor memory pressure at 85%'],
-        recommended_action: 'Inspect Spark deduplication step; check partition skew in CustomerTransformStep and increase executor memory.',
+                kafka_lag: 0, status: 'FAIL', issues: ['ERROR: 40000 records dropped during deduplication stage'] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [], type_changes: [], status: 'PASS', issues: [] },
+      incident: {
+        severity: 'P2',
+        severity_rationale: 'row_variance_pct >= 5.0 (actual: 40.0)',
+        detected_by: 'sql_validator',
+        affected_job: 'cx_customer_load',
+        affected_objects: ['target.customer_dim'],
+        rows_expected: 100000, rows_loaded: 60000,
+        impact_summary: 'Target table is missing roughly 40% of expected records; downstream reporting on customer transactions will undercount.',
+        root_cause: '40,000 records dropped during deduplication in CustomerTransformStep; log shows partition skew and executor memory pressure at 85%.',
+        recommended_action: 'Inspect the deduplication step for partition skew; consider repartitioning on transaction_id before the dedup stage.',
         confidence: 0.95,
+        runbook: 'docs/runbooks/RB-001-row-shortfall.md',
+        requires_approval: true,
       },
     },
     schema_drift: {
       sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
-                null_rates: {customer_id: 0.0, amount: 0.0, bal: 0.0},
-                status: 'PASS', issues: [] },
+                null_rates: {customer_id: 0.0, amount: 0.0, bal: 0.0}, status: 'PASS', issues: [] },
       log:    { error_count: 1, warn_count: 3,
                 errors: ["ERROR: Column 'account_balance' not found in target schema"],
-                kafka_lag: 0, status: 'FAIL',
-                issues: ["ERROR: Column 'account_balance' not found in target schema"] },
+                kafka_lag: 0, status: 'FAIL', issues: ["ERROR: Column 'account_balance' not found in target schema"] },
       schema: { columns_added: ['bal'], columns_removed: ['account_balance'],
                 columns_renamed: [{from: 'account_balance', to: 'bal'}],
-                type_changes: [], status: 'FAIL',
-                issues: ['Column renamed: account_balance → bal'] },
-      verdict: {
-        verdict: 'FAIL',
-        root_cause: "Column 'account_balance' renamed to 'bal' in target schema — likely a migration script applied to the wrong environment.",
-        details: ['Column renamed: account_balance → bal',
-                  "ERROR: Column 'account_balance' not found in target schema"],
-        recommended_action: 'Revert the target schema migration or update the pipeline transformation to align with the new column name.',
+                type_changes: [], status: 'FAIL', issues: ['Column renamed: account_balance → bal'] },
+      incident: {
+        severity: 'P1',
+        severity_rationale: 'job_failed_no_path_to_sla',
+        detected_by: 'schema_comparator',
+        affected_job: 'cx_customer_load',
+        affected_objects: ['target.customer_dim'],
+        rows_expected: 100000, rows_loaded: 100000,
+        impact_summary: 'account_balance is entirely absent from the target load; any downstream job reading that column will fail or silently treat balances as unknown.',
+        root_cause: "Column 'account_balance' renamed to 'bal' in the target schema, likely a migration applied to the wrong environment.",
+        recommended_action: 'Revert the target schema migration or update the transformation to align with the new column name.',
         confidence: 0.97,
+        runbook: 'docs/runbooks/RB-002-schema-drift.md',
+        requires_approval: true,
       },
     },
     null_spike: {
@@ -772,36 +993,43 @@
                 kafka_lag: 0, status: 'FAIL',
                 issues: ['ERROR: NullPointerException in CustomerTransformStep at line 84',
                          'ERROR: Null propagation detected in customer_id join key'] },
-      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
-                type_changes: [], status: 'PASS', issues: [] },
-      verdict: {
-        verdict: 'FAIL',
-        root_cause: 'customer_id null rate spiked to 35% — NullPointerException in CustomerTransformStep suggests a broken join key.',
-        details: ['customer_id null rate 35% (threshold: 5%)',
-                  'ERROR: NullPointerException in CustomerTransformStep at line 84',
-                  'ERROR: Null propagation detected in customer_id join key'],
-        recommended_action: 'Fix the null-safe join in CustomerTransformStep line 84; add NOT NULL constraint to customer_id in the target DDL.',
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [], type_changes: [], status: 'PASS', issues: [] },
+      incident: {
+        severity: 'P3',
+        severity_rationale: 'null_rate_increase_pct >= 10.0 on critical column(s): customer_id +35.0%',
+        detected_by: 'sql_validator',
+        affected_job: 'cx_customer_load',
+        affected_objects: ['target.customer_dim'],
+        rows_expected: 100000, rows_loaded: 100000,
+        impact_summary: '35% of loaded records have no customer_id and cannot be joined back to a customer record.',
+        root_cause: 'NullPointerException in CustomerTransformStep broke the null-safe join on customer_id.',
+        recommended_action: 'Fix the null-safe join in CustomerTransformStep; add a NOT NULL constraint to customer_id in the target DDL.',
         confidence: 0.96,
+        runbook: 'docs/runbooks/RB-003-null-spike.md',
+        requires_approval: false,
       },
     },
     latency: {
       sql:    { source_count: BASE_ROWS, target_count: BASE_ROWS, row_drop_pct: 0.0,
-                null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0},
-                status: 'PASS', issues: [] },
+                null_rates: {customer_id: 0.0, amount: 0.0, account_balance: 0.0}, status: 'PASS', issues: [] },
       log:    { error_count: 1, warn_count: 8,
                 errors: ['ERROR: Kafka consumer lag exceeded 10000 messages'],
                 kafka_lag: 15000, status: 'FAIL',
-                issues: ['ERROR: Kafka consumer lag exceeded 10000 messages',
-                         'Kafka consumer lag: 15000 messages'] },
-      schema: { columns_added: [], columns_removed: [], columns_renamed: [],
-                type_changes: [], status: 'PASS', issues: [] },
-      verdict: {
-        verdict: 'FAIL',
-        root_cause: 'Kafka consumer lag of 15,000 messages exceeds the 10,000 threshold — consumer group is falling behind.',
-        details: ['Kafka consumer lag: 15000 messages (threshold: 10000)',
-                  'ERROR: Kafka consumer lag exceeded 10000 messages'],
-        recommended_action: 'Scale out the Kafka consumer group or investigate back-pressure in the downstream Spark streaming job.',
+                issues: ['ERROR: Kafka consumer lag exceeded 10000 messages', 'Kafka consumer lag: 15000 messages'] },
+      schema: { columns_added: [], columns_removed: [], columns_renamed: [], type_changes: [], status: 'PASS', issues: [] },
+      incident: {
+        severity: 'P2',
+        severity_rationale: 'sla_breach_projected',
+        detected_by: 'log_analyser',
+        affected_job: 'cx_customer_load',
+        affected_objects: ['target.customer_dim'],
+        rows_expected: 100000, rows_loaded: 100000,
+        impact_summary: 'Downstream consumers are 15,000 messages behind Kafka and falling further back; near-real-time dashboards will show stale data.',
+        root_cause: 'Kafka consumer lag of 15,000 messages exceeds the 10,000-message threshold.',
+        recommended_action: 'Scale out the Kafka consumer group or investigate back-pressure in the downstream streaming job.',
         confidence: 0.93,
+        runbook: 'docs/runbooks/RB-004-consumer-lag.md',
+        requires_approval: true,
       },
     },
   };
@@ -839,9 +1067,12 @@
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-  function makeRunId() {
-    return Math.random().toString(16).slice(2, 10);
+  function makeIncidentId() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `INC-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
   }
+  function makeRunId() { return Math.random().toString(16).slice(2, 10); }
 
   async function runPipeline() {
     if (running) return;
@@ -856,115 +1087,103 @@
     const sim = SIM[mode] || SIM.none;
     let toolsDone = 0;
 
-    const handle = (data) => {
-
-      if (data.type === 'start') {
-        const meta = document.getElementById('runMeta');
-        meta.textContent = `run_id: ${data.run_id}  ·  mode: ${data.failure_mode}  ·  ${new Date().toISOString()}`;
-        meta.style.display = 'block';
-        setStep('step-trigger', 'done', `run_id: ${data.run_id}`);
-        appendLog(`Pipeline event received — run_id=${data.run_id} mode=${data.failure_mode}`, 'log-info');
-        setStep('step-tools', 'active', 'Dispatching tool calls…');
-      }
-
-      else if (data.type === 'tool_call') {
-        setToolCard(data.tool, 'calling');
-        appendLog(`→ tool_use: ${toolLabel(data.tool)}(${JSON.stringify(data.input).slice(0,80)})`, 'log-call');
-      }
-
-      else if (data.type === 'tool_result') {
-        const isPass = data.result.status === 'PASS';
-        setToolCard(data.tool, isPass ? 'pass' : 'fail', data.result);
-        const issues = data.result.issues?.length > 0 ? ` — ${data.result.issues.join('; ')}` : '';
-        appendLog(`← tool_result: ${toolLabel(data.tool)} → ${data.result.status}${issues}`,
-          isPass ? 'log-result-pass' : 'log-result-fail');
-        toolsDone++;
-        if (toolsDone === 3) setStep('step-tools', 'done', 'All 3 tools completed');
-      }
-
-      else if (data.type === 'synthesising') {
-        setStep('step-synth', 'active', 'Synthesising root cause…');
-        appendLog('⟳ Synthesising tool results — forming verdict…', 'log-synth');
-      }
-
-      else if (data.type === 'verdict') {
-        const isPass = data.verdict === 'PASS';
-        setStep('step-synth', 'done', `Verdict: ${data.verdict} (confidence ${(data.confidence*100).toFixed(0)}%)`);
-        appendLog(`✦ VERDICT: ${data.verdict} — ${data.root_cause}`,
-          isPass ? 'log-result-pass' : 'log-result-fail');
-        showVerdict(data);
-        setStep('step-tests', 'active', `Launching ${data.test_framework}…`);
-        appendLog(`→ Invoking ${data.test_framework} test suite…`, 'log-info');
-      }
-
-      else if (data.type === 'tests_done') {
-        const isPass = data.failed === 0;
-        setStep('step-tests', isPass ? 'done' : 'fail',
-          `${data.framework}: ${data.passed} passed, ${data.failed} failed`);
-        appendLog(`← ${data.framework} complete: ${data.passed} passed / ${data.failed} failed`,
-          isPass ? 'log-result-pass' : 'log-result-fail');
-        showTestResults(data);
-        setStep('step-notify', 'done', 'Slack #qa-alerts + Jenkins webhook dispatched');
-        appendLog('→ Slack alert dispatched to #qa-alerts', 'log-info');
-        appendLog('→ Jenkins webhook triggered with QA summary payload', 'log-info');
-      }
-
-      else if (data.type === 'done') {
-        running = false;
-        document.getElementById('runBtn').disabled = false;
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('btnText').textContent = '▶ Run Pipeline';
-        appendLog('─── Pipeline run complete ───', 'log-dim');
-      }
-    };
-
     try {
-      handle({type: 'start', run_id, failure_mode: mode});
+      const meta = document.getElementById('runMeta');
+      meta.textContent = `run_id: ${run_id}  ·  mode: ${mode}  ·  ${new Date().toISOString()}`;
+      meta.style.display = 'block';
+      setStep('step-trigger', 'done', `run_id: ${run_id}`);
+      appendLog(`Pipeline event received — run_id=${run_id} mode=${mode}`, 'log-info');
+      setStep('step-tools', 'active', 'Dispatching tool calls…');
       await sleep(300);
 
-      handle({type: 'tool_call', tool: 'sql_validator',
-              input: {source_table: 'src.transactions', target_table: 'tgt.transactions', run_id}});
+      appendLog(`→ tool_use: sql_validator(source_table=src.transactions, target_table=tgt.transactions)`, 'log-call');
       await sleep(900);
-      handle({type: 'tool_result', tool: 'sql_validator', result: sim.sql});
+      setToolCard('sql_validator', sim.sql.status === 'PASS' ? 'pass' : 'fail', sim.sql);
+      appendLog(`← tool_result: sql_validator → ${sim.sql.status}${sim.sql.issues.length ? ' — ' + sim.sql.issues.join('; ') : ''}`,
+        sim.sql.status === 'PASS' ? 'log-result-pass' : 'log-result-fail');
+      toolsDone++;
       await sleep(200);
 
-      handle({type: 'tool_call', tool: 'log_analyser',
-              input: {log_path: `/logs/spark_run_${run_id}.log`, run_id}});
+      appendLog(`→ tool_use: log_analyser(log_path=/logs/spark_run_${run_id}.log)`, 'log-call');
       await sleep(700);
-      handle({type: 'tool_result', tool: 'log_analyser', result: sim.log});
+      setToolCard('log_analyser', sim.log.status === 'PASS' ? 'pass' : 'fail', sim.log);
+      appendLog(`← tool_result: log_analyser → ${sim.log.status}${sim.log.issues.length ? ' — ' + sim.log.issues.join('; ') : ''}`,
+        sim.log.status === 'PASS' ? 'log-result-pass' : 'log-result-fail');
+      toolsDone++;
       await sleep(200);
 
-      handle({type: 'tool_call', tool: 'schema_comparator',
-              input: {source_table: 'src.transactions', target_table: 'tgt.transactions'}});
+      appendLog(`→ tool_use: schema_comparator(source_table=src.transactions, target_table=tgt.transactions)`, 'log-call');
       await sleep(800);
-      handle({type: 'tool_result', tool: 'schema_comparator', result: sim.schema});
+      setToolCard('schema_comparator', sim.schema.status === 'PASS' ? 'pass' : 'fail', sim.schema);
+      appendLog(`← tool_result: schema_comparator → ${sim.schema.status}${sim.schema.issues.length ? ' — ' + sim.schema.issues.join('; ') : ''}`,
+        sim.schema.status === 'PASS' ? 'log-result-pass' : 'log-result-fail');
+      toolsDone++;
+      setStep('step-tools', 'done', 'All 3 tools completed');
       await sleep(400);
 
-      handle({type: 'synthesising'});
-      await sleep(1100);
+      setStep('step-synth', 'active', 'Classifying severity from reported signals…');
+      appendLog('⟳ Claude reports signals; agent.severity.classify() derives severity deterministically…', 'log-synth');
+      await sleep(900);
 
-      const v = sim.verdict;
-      const framework = v.verdict === 'PASS' ? 'Robot Framework' : 'pytest';
-      handle({type: 'verdict', ...v, test_framework: framework});
-      await sleep(1500);
-
-      if (v.verdict === 'PASS') {
-        handle({type: 'tests_done', framework: 'Robot Framework',
-                passed: 6, failed: 0, cases: ROBOT_CASES});
+      if (!sim.incident) {
+        setStep('step-synth', 'done', 'No incident — all signals clean');
+        appendLog('✦ CLEAN — no severity condition matched', 'log-result-pass');
+        showIncidentCard({ status: 'resolved', severity: null, incident_id: '(none)', detected_by: 'none',
+          severity_rationale: 'No severity conditions matched — clean run.', impact_summary: 'No issues detected.',
+          affected_job: '—', affected_objects: [], rows_loaded: null, rows_expected: null,
+          requires_approval: false, recommended_action: null, runbook: null, confidence: 0.98 });
+        document.getElementById('incidentLabel').textContent = 'CLEAN';
+        document.getElementById('incidentEmoji').textContent = '✅';
+        setStep('step-tests', 'active', 'Launching Robot Framework…');
+        appendLog('→ Invoking Robot Framework (SLA / data-contract verification)…', 'log-info');
+        await sleep(1200);
+        setStep('step-tests', 'done', 'Robot Framework: 6 passed, 0 failed');
+        appendLog('← Robot Framework complete: 6 passed / 0 failed', 'log-result-pass');
+        showTestResults({ framework: 'Robot Framework', passed: 6, failed: 0, cases: ROBOT_CASES });
+        setStep('step-notify', 'done', 'No incident to post');
+        appendLog('→ notify_slack: clean run, nothing posted', 'log-dim');
       } else {
+        const inc = Object.assign({}, sim.incident, {
+          incident_id: makeIncidentId(),
+          run_id,
+          status: 'open',
+          opened_at: new Date().toISOString(),
+          slack_channel: 'C0C1M8JV7L4',
+          mtta_seconds: null,
+          mttr_seconds: null,
+          thread: [],
+          _openedAtMs: Date.now(),
+        });
+        currentIncident = inc;
+
+        setStep('step-synth', 'done', `${inc.severity} — ${inc.severity_rationale}`);
+        appendLog(`✦ SEVERITY: ${inc.severity} — ${inc.severity_rationale}`, 'log-result-fail');
+        appendLog(`→ open_incident + persist → ${inc.incident_id}`, 'log-info');
+        showIncidentCard(inc);
+
+        setStep('step-tests', 'active', 'Launching pytest…');
+        appendLog('→ Invoking pytest (diagnostic deep-dive)…', 'log-info');
+        await sleep(1200);
         const ft = FAILED_TESTS[mode] || {passed: 0, failed: 0, cases: []};
-        handle({type: 'tests_done', framework: 'pytest',
-                passed: ft.passed, failed: ft.failed,
-                cases: ft.cases.map(([name, passed]) => ({name, passed}))});
+        setStep('step-tests', 'fail', `pytest: ${ft.passed} passed, ${ft.failed} failed`);
+        appendLog(`← pytest complete: ${ft.passed} passed / ${ft.failed} failed`, 'log-result-fail');
+        showTestResults({ framework: 'pytest', passed: ft.passed, failed: ft.failed,
+          cases: ft.cases.map(([name, passed]) => ({name, passed})) });
+
+        setStep('step-notify', 'done', `Posted ${inc.incident_id} to #etl-prod-alerts`);
+        appendLog(`→ notify_slack: posted ${inc.incident_id} to #etl-prod-alerts (chat.postMessage)`, 'log-info');
+        if (inc.severity === 'P1') appendLog('→ mirror_p1: also posted to #etl-prod-p1 with <!here>', 'log-info');
+        renderSlackMessage(inc);
       }
-      await sleep(200);
-      handle({type: 'done'});
+
+      appendLog('─── Pipeline run complete ───', 'log-dim');
     } catch (err) {
+      appendLog('✗ Simulation error: ' + err.message, 'log-result-fail');
+    } finally {
       running = false;
       document.getElementById('runBtn').disabled = false;
       document.getElementById('spinner').style.display = 'none';
       document.getElementById('btnText').textContent = '▶ Run Pipeline';
-      appendLog('✗ Simulation error: ' + err.message, 'log-result-fail');
     }
   }
 </script>
