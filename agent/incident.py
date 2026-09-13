@@ -174,6 +174,20 @@ def set_status(incident: Incident, status: str, actor: str = "system") -> Incide
     return incident
 
 
+def record_approval_decision(incident: Incident, decision: str, approver: str) -> Incident:
+    """
+    Record a human decision (approved/rejected/escalated) from a Slack
+    button click and persist it. Minimal T1.4 version: appends to the
+    timeline and persists. T1.5 extends this with the full approval-gate
+    business rules — rejecting a second decision on an already-decided
+    incident, posting to #etl-changes, and escalate re-opening the
+    incident and mirroring to #etl-prod-p1.
+    """
+    append_timeline(incident, actor=approver, event="approval_decision", detail=f"{decision} by {approver}")
+    persist(incident)
+    return incident
+
+
 def compute_mtta(incident: Incident) -> int | None:
     """
     Seconds from opened_at to the first human timeline event — a thread

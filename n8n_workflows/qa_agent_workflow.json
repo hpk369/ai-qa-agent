@@ -165,7 +165,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const agentResult = $('Call Triage Agent').first().json;\n\nconst incident = agentResult.incident;\nconst clean = agentResult.clean === true;\n\nconst severityEmoji = { P1: '🔴', P2: '🟠', P3: '🟡', P4: '⚪' };\nconst emoji = clean ? '✅' : (severityEmoji[incident && incident.severity] || '❗');\n\nconst summary = {\n  run_id: $('Pipeline Trigger').first().json.run_id,\n  clean,\n  incident_id: incident ? incident.incident_id : null,\n  severity: incident ? incident.severity : null,\n  impact_summary: incident ? incident.impact_summary : 'No issues detected.',\n  root_cause: incident ? incident.root_cause : null,\n  recommended_action: incident ? incident.recommended_action : null,\n  confidence: incident ? incident.confidence : null,\n  checks_performed: agentResult.checks_performed || [],\n  requires_approval: incident ? incident.requires_approval : false,\n  runbook: incident ? incident.runbook : null,\n  validation_framework: clean ? 'Robot Framework' : 'pytest',\n  timestamp: new Date().toISOString(),\n};\n\nconst slack_message = [\n  `${emoji} *ETL Production Support* — ${clean ? 'No Incident' : `Incident ${summary.incident_id} (${summary.severity})`}`,\n  `*Run ID:* ${summary.run_id}`,\n  `*Impact:* ${summary.impact_summary}`,\n  summary.root_cause ? `*Root Cause:* ${summary.root_cause}` : '',\n  summary.recommended_action ? `*Recommended Action:* ${summary.recommended_action}` : '',\n  summary.runbook ? `*Runbook:* ${summary.runbook}` : '',\n  `*Confidence:* ${summary.confidence != null ? (summary.confidence * 100).toFixed(0) + '%' : 'n/a'}`,\n  `*Validation via:* ${summary.validation_framework}`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { summary, slack_message, clean } }];"
+        "jsCode": "const agentResult = $('Call Triage Agent').first().json;\n\nconst incident = agentResult.incident;\nconst clean = agentResult.clean === true;\n\n// Slack posting is no longer this workflow's job -- agent/agent.py posts\n// the incident (with full Block Kit) directly, right after opening it.\n// This node's only remaining job is to shape the summary handed to\n// Jenkins and back to the original caller.\nconst summary = {\n  run_id: $('Pipeline Trigger').first().json.run_id,\n  clean,\n  incident_id: incident ? incident.incident_id : null,\n  severity: incident ? incident.severity : null,\n  impact_summary: incident ? incident.impact_summary : 'No issues detected.',\n  root_cause: incident ? incident.root_cause : null,\n  recommended_action: incident ? incident.recommended_action : null,\n  confidence: incident ? incident.confidence : null,\n  checks_performed: agentResult.checks_performed || [],\n  requires_approval: incident ? incident.requires_approval : false,\n  runbook: incident ? incident.runbook : null,\n  slack_channel: incident ? incident.slack_channel : null,\n  slack_ts: incident ? incident.slack_ts : null,\n  validation_framework: clean ? 'Robot Framework' : 'pytest',\n  timestamp: new Date().toISOString(),\n};\n\nreturn [{ json: { summary, clean } }];"
       },
       "id": "node-build-incident-record",
       "name": "Build Incident Record",
@@ -174,25 +174,6 @@
       "position": [
         1560,
         300
-      ]
-    },
-    {
-      "parameters": {
-        "authentication": "webhook",
-        "webhookUri": "={{ $env.SLACK_WEBHOOK_URL }}",
-        "text": "={{ $json.slack_message }}",
-        "otherOptions": {
-          "username": "Triage Agent",
-          "icon_emoji": ":robot_face:"
-        }
-      },
-      "id": "node-slack",
-      "name": "Slack Alert",
-      "type": "n8n-nodes-base.slack",
-      "typeVersion": 2,
-      "position": [
-        1780,
-        180
       ]
     },
     {
@@ -338,11 +319,6 @@
       "main": [
         [
           {
-            "node": "Slack Alert",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "Jenkins Webhook",
             "type": "main",
             "index": 0
@@ -367,7 +343,7 @@
           {
             "node": "Respond to Webhook",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]
