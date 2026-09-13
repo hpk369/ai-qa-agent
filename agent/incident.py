@@ -277,6 +277,76 @@ def compute_mttr(incident: Incident) -> int | None:
     return None
 
 
+def sync_slack_engagement(incident: Incident, slack_client=None) -> Incident:
+    """
+    Poll Slack for human engagement on the incident's parent message
+    (thread replies + reactions) and append any not-yet-recorded ones to
+    the timeline as human events, so compute_mtta reflects real Slack
+    activity — a thread reply or reaction from a person — rather than
+    only our own approval-gate actions. No-op if the incident hasn't been
+    posted to Slack yet; also a no-op in SLACK_MODE=stub (see
+    SlackClient.get_thread_replies's docstring for why).
+    """
+    from agent.slack_client import SlackClient
+
+    slack = slack_client or SlackClient()
+    if not incident.slack_channel or not incident.slack_ts:
+        return incident
+
+    already_synced_replies = {
+        entry["detail"] for entry in incident.timeline if entry["event"] == "slack_thread_reply"
+    }
+    for message in slack.get_thread_replies(incident):
+        message_ts = message.get("ts", "")
+        if message_ts == incident.slack_ts or message.get("bot_id"):
+            continue  # the parent message itself, or the bot's own post — neither is human engagement
+        if message_ts in already_synced_replies:
+            continue
+        append_timeline(incident, actor=message.get("user", "unknown"), event="slack_thread_reply", detail=message_ts)
+
+    already_reacted = {
+        (entry["actor"], entry["detail"]) for entry in incident.timeline if entry["event"] == "slack_reaction"
+    }
+    for reaction in slack.get_reactions(incident):
+        emoji = f":{reaction.get('name', '')}:"
+        for user in reaction.get("users", []):
+            if (user, emoji) in already_reacted:
+                continue
+            append_timeline(incident, actor=user, event="slack_reaction", detail=emoji)
+
+    return incident
+
+
+def resolve_incident(incident: Incident, actor: str, slack_client=None) -> Incident:
+    """
+    Mark an incident resolved: syncs Slack engagement first so MTTA
+    reflects real activity, computes mtta_seconds if not already set,
+    transitions to status "resolved" (set_status computes mttr_seconds),
+    persists, and updates the Slack parent message to show RESOLVED plus
+    both MTTA/MTTR figures — agent.slack_blocks.build_parent_message
+    already renders that state once status/mtta/mttr are set; see T1.2.
+    """
+    from agent.slack_blocks import build_parent_message
+    from agent.slack_client import SlackClient
+
+    slack = slack_client or SlackClient()
+
+    sync_slack_engagement(incident, slack_client=slack)
+    if incident.mtta_seconds is None:
+        incident.mtta_seconds = compute_mtta(incident)
+
+    set_status(incident, "resolved", actor=actor)  # also sets mttr_seconds
+    persist(incident)
+
+    try:
+        blocks, text = build_parent_message(incident)
+        slack.update_parent(incident, blocks, text)
+    except Exception as exc:  # noqa: BLE001 - the resolution is already persisted; Slack is a view
+        print(f"[incident] WARNING: failed to update Slack parent for resolved {incident.incident_id}: {exc}")
+
+    return incident
+
+
 def render_markdown(incident: Incident) -> str:
     lines = [
         f"# {incident.incident_id} — {incident.severity}",

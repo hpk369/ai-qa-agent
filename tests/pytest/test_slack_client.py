@@ -261,3 +261,68 @@ class TestPostChangeLog:
         assert captured["payload"]["channel"] == "C_CHANGES"
         assert "approved" in captured["payload"]["text"]
         assert "U123" in captured["payload"]["text"]
+
+
+class TestGetThreadRepliesAndReactions:
+    def test_no_slack_ts_returns_empty_without_calling_out(self, monkeypatch):
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("must not call out when the incident was never posted")
+
+        monkeypatch.setattr(slack_client_module.httpx, "post", fail_if_called)
+
+        client = SlackClient(mode="live", bot_token="xoxb-test")
+        incident = _incident()  # slack_channel/slack_ts left as None
+
+        assert client.get_thread_replies(incident) == []
+        assert client.get_reactions(incident) == []
+
+    def test_stub_mode_returns_empty_without_calling_out(self, monkeypatch):
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("stub mode must not make a network call")
+
+        monkeypatch.setattr(slack_client_module.httpx, "post", fail_if_called)
+
+        client = SlackClient(mode="stub")
+        incident = _incident()
+        incident.slack_channel = "C_ALERTS"
+        incident.slack_ts = "1690000000.000100"
+
+        assert client.get_thread_replies(incident) == []
+        assert client.get_reactions(incident) == []
+
+    def test_get_thread_replies_returns_messages(self, monkeypatch):
+        captured = {}
+
+        def fake_post(url, json, headers, timeout):
+            captured["payload"] = json
+            return FakeResponse(200, {"ok": True, "messages": [{"ts": "1", "user": "U1"}]})
+
+        monkeypatch.setattr(slack_client_module.httpx, "post", fake_post)
+
+        client = SlackClient(mode="live", bot_token="xoxb-test")
+        incident = _incident()
+        incident.slack_channel = "C_ALERTS"
+        incident.slack_ts = "1690000000.000100"
+
+        messages = client.get_thread_replies(incident)
+
+        assert messages == [{"ts": "1", "user": "U1"}]
+        assert captured["payload"]["channel"] == "C_ALERTS"
+        assert captured["payload"]["ts"] == "1690000000.000100"
+
+    def test_get_reactions_returns_reaction_list(self, monkeypatch):
+        def fake_post(url, json, headers, timeout):
+            return FakeResponse(
+                200, {"ok": True, "message": {"reactions": [{"name": "eyes", "users": ["U1"]}]}}
+            )
+
+        monkeypatch.setattr(slack_client_module.httpx, "post", fake_post)
+
+        client = SlackClient(mode="live", bot_token="xoxb-test")
+        incident = _incident()
+        incident.slack_channel = "C_ALERTS"
+        incident.slack_ts = "1690000000.000100"
+
+        reactions = client.get_reactions(incident)
+
+        assert reactions == [{"name": "eyes", "users": ["U1"]}]

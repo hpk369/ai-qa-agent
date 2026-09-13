@@ -203,6 +203,37 @@ class SlackClient:
             return None
         return self.mirror_to_p1(incident, blocks, text)
 
+    def get_thread_replies(self, incident: Incident) -> list[dict]:
+        """
+        conversations.replies on the parent message — used by T1.8's MTTA
+        sync to find the first human reply. Returns Slack's raw list of
+        messages (the parent itself included as the first element), or []
+        if the incident hasn't been posted yet.
+
+        Stub mode has nothing meaningful to return here: stub mode only
+        ever records outbound payloads (what would have been sent), not a
+        simulated Slack-side response to a read call, so this always
+        returns [] in stub mode — a documented limitation, not a bug.
+        """
+        if not incident.slack_channel or not incident.slack_ts:
+            return []
+        if self.mode == "stub":
+            return []
+        payload = {"channel": incident.slack_channel, "ts": incident.slack_ts}
+        data = self._call("conversations.replies", payload, incident.incident_id)
+        return data.get("messages", [])
+
+    def get_reactions(self, incident: Incident) -> list[dict]:
+        """reactions.get on the parent message. Same stub-mode limitation
+        as get_thread_replies — see its docstring."""
+        if not incident.slack_channel or not incident.slack_ts:
+            return []
+        if self.mode == "stub":
+            return []
+        payload = {"channel": incident.slack_channel, "timestamp": incident.slack_ts}
+        data = self._call("reactions.get", payload, incident.incident_id)
+        return data.get("message", {}).get("reactions", [])
+
     def post_change_log(self, incident: Incident, action: str, approver: str) -> str:
         """Post a decision (approved/rejected/escalated/executed/...) to
         #etl-changes — the audit trail for every remediation action."""
