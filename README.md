@@ -160,6 +160,24 @@ INJECT_FAILURE=latency python mock_pipeline/producer.py
 
 Severities above reflect `config/severity.yml`'s current thresholds against each mode's characteristic signal — see `tests/pytest/test_agent_response.py` for the exact signal-to-severity mapping tested for each mode, and `expansion-plan.md` §4.A1 for the rationale behind the thresholds themselves.
 
+The commands above go through the full pipeline (Kafka → n8n → agent, requiring `ANTHROPIC_API_KEY` and the whole stack running). For a live demo or to verify a real Slack setup without any of that, use the demo scripts instead:
+
+```bash
+# One incident, opened and posted to Slack (or reports/slack/ if SLACK_MODE=stub)
+scripts/demo_incident.py row_drop
+
+# ...and walked through its full lifecycle: acknowledged -> approved ->
+# remediating -> verifying -> resolved, updating the Slack parent message
+# in place at each step
+scripts/demo_incident.py schema_drift --lifecycle --actor U_ONCALL
+
+# Every failure mode, full lifecycle, plus the resulting metrics report --
+# a one-command walkthrough for a live demo
+scripts/demo_all.sh
+```
+
+These call exactly the same code the real agent uses (`agent.agent.build_response`/`notify_slack`, `agent.incident.record_approval_decision`/`resolve_incident`) against a synthetic model output shaped like what a compliant Claude call would produce — no `ANTHROPIC_API_KEY`, no tool server, no n8n required. `SLACK_MODE` (stub by default) works exactly as it does everywhere else in this repo: unset/`stub` previews locally with zero setup, `live` with a populated `.env` narrates into a real workspace.
+
 ## Running Tests Locally
 
 ```bash
@@ -184,7 +202,7 @@ ai-qa-agent/
 ├── agent/                  # Claude tool-use loop, severity classifier, incident records, Slack client/blocks/verify, runbook selection, evidence bundle
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's JSON Schema
-├── scripts/                # first-15-minutes.sh, incident_metrics.py
+├── scripts/                # first-15-minutes.sh, incident_metrics.py, demo_incident.py, demo_all.sh
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
 │   ├── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
