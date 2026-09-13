@@ -1,0 +1,44 @@
+# Severity thresholds for the ETL Production Support Triage Agent.
+#
+# Thresholds live here, never in code (agent/severity.py). Every threshold
+# below must be defensible in review — see expansion-plan.md §4.A1 for the
+# rationale behind why 5% row variance is P2 and 1% is P3, and why null-rate
+# tolerance differs by column criticality.
+
+severities:
+  P1:
+    label: "Critical — financial or availability impact"
+    conditions:
+      - target_unavailable: true
+      - control_total_mismatch: true          # any monetary variance at all
+      - job_failed_no_path_to_sla: true
+    response: "Page immediately, engage app dev, open incident bridge"
+  P2:
+    label: "High — data integrity or SLA at risk"
+    conditions:
+      - row_variance_pct: {gte: 5.0}
+      - sla_breach_projected: true
+      - downstream_jobs_blocked: {gte: 1}
+    response: "Notify on-call, begin remediation, hourly updates"
+  P3:
+    label: "Moderate — complete but degraded"
+    conditions:
+      - row_variance_pct: {gte: 1.0, lt: 5.0}
+      - null_rate_increase_pct: {gte: 10.0, columns: critical}
+      - job_duration_vs_baseline_pct: {gte: 200.0}
+    response: "Ticket, next business day"
+  P4:
+    label: "Low — informational"
+    conditions:
+      - null_rate_increase_pct: {gte: 10.0, columns: non_critical}
+      - log_anomaly_no_data_impact: true
+    response: "Log, batch into weekly review"
+
+column_criticality:
+  critical: [customer_id, account_balance, account_number]
+  non_critical: [last_updated_source, region_code]
+
+evaluation:
+  # highest matching severity wins; ties resolve to the more severe
+  order: [P1, P2, P3, P4]
+  default: null    # no match = no incident
