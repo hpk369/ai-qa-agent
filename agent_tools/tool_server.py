@@ -1,6 +1,6 @@
 """
 FastAPI tool server — exposes sql_validator, log_analyser, schema_comparator as HTTP endpoints.
-n8n calls these via HTTP Request nodes; the AI agent also calls them directly.
+n8n calls these via HTTP Request nodes; the triage agent also calls them directly.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from agent_tools.log_analyser import LogAnalyser
 from agent_tools.schema_comparator import SchemaComparator
 from agent_tools.sql_validator import SQLValidator
 
-app = FastAPI(title="QA Agent Tool Server", version="1.0.0")
+app = FastAPI(title="ETL Production Support Triage Tool Server", version="1.0.0")
 
 
 # ---------- Request models ----------

@@ -1,5 +1,5 @@
 {
-  "name": "QA Agent Pipeline",
+  "name": "ETL Production Support Triage Agent Pipeline",
   "nodes": [
     {
       "parameters": {
@@ -12,7 +12,10 @@
       "name": "Pipeline Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,10 +59,13 @@
         }
       },
       "id": "node-call-agent",
-      "name": "Call QA Agent",
+      "name": "Call Triage Agent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -69,11 +75,11 @@
           },
           "conditions": [
             {
-              "id": "condition-verdict",
-              "leftValue": "={{ $json.verdict }}",
-              "rightValue": "PASS",
+              "id": "condition-clean",
+              "leftValue": "={{ $json.clean }}",
+              "rightValue": true,
               "operator": {
-                "type": "string",
+                "type": "boolean",
                 "operation": "equals"
               }
             }
@@ -82,11 +88,14 @@
         },
         "options": {}
       },
-      "id": "node-check-verdict",
-      "name": "Check Verdict",
+      "id": "node-check-incident-status",
+      "name": "Check Incident Status",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [680, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
       "parameters": {
@@ -96,7 +105,10 @@
       "name": "Run Robot Framework",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [900, 180]
+      "position": [
+        900,
+        180
+      ]
     },
     {
       "parameters": {
@@ -106,7 +118,10 @@
       "name": "Run pytest",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [900, 420]
+      "position": [
+        900,
+        420
+      ]
     },
     {
       "parameters": {
@@ -116,7 +131,10 @@
       "name": "Read RF Report",
       "type": "n8n-nodes-base.readBinaryFile",
       "typeVersion": 1,
-      "position": [1120, 180]
+      "position": [
+        1120,
+        180
+      ]
     },
     {
       "parameters": {
@@ -126,7 +144,10 @@
       "name": "Read pytest Report",
       "type": "n8n-nodes-base.readBinaryFile",
       "typeVersion": 1,
-      "position": [1120, 420]
+      "position": [
+        1120,
+        420
+      ]
     },
     {
       "parameters": {
@@ -137,17 +158,23 @@
       "name": "Merge Reports",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2,
-      "position": [1340, 300]
+      "position": [
+        1340,
+        300
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const agentResult = $('Call QA Agent').first().json;\nconst testOutput = items[0]?.json || {};\n\nconst verdict = agentResult.verdict || 'UNKNOWN';\nconst isPass = verdict === 'PASS';\nconst emoji = isPass ? '✅' : '❌';\nconst color = isPass ? 'good' : 'danger';\n\nconst summary = {\n  run_id: $('Pipeline Trigger').first().json.run_id,\n  verdict,\n  root_cause: agentResult.root_cause,\n  details: agentResult.details || [],\n  recommended_action: agentResult.recommended_action,\n  confidence: agentResult.confidence,\n  test_framework: isPass ? 'Robot Framework' : 'pytest',\n  timestamp: new Date().toISOString(),\n};\n\nconst slack_message = [\n  `${emoji} *QA Pipeline Report* — ${verdict}`,\n  `*Run ID:* ${summary.run_id}`,\n  `*Root Cause:* ${summary.root_cause}`,\n  summary.details.length > 0 ? `*Issues:*\\n${summary.details.map(d => `• ${d}`).join('\\n')}` : '',\n  `*Action:* ${summary.recommended_action}`,\n  `*Confidence:* ${(summary.confidence * 100).toFixed(0)}%`,\n  `*Tests run via:* ${summary.test_framework}`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { summary, slack_message, color, verdict } }];"
+        "jsCode": "const agentResult = $('Call Triage Agent').first().json;\n\nconst incident = agentResult.incident;\nconst clean = agentResult.clean === true;\n\nconst severityEmoji = { P1: '🔴', P2: '🟠', P3: '🟡', P4: '⚪' };\nconst emoji = clean ? '✅' : (severityEmoji[incident && incident.severity] || '❗');\n\nconst summary = {\n  run_id: $('Pipeline Trigger').first().json.run_id,\n  clean,\n  incident_id: incident ? incident.incident_id : null,\n  severity: incident ? incident.severity : null,\n  impact_summary: incident ? incident.impact_summary : 'No issues detected.',\n  root_cause: incident ? incident.root_cause : null,\n  recommended_action: incident ? incident.recommended_action : null,\n  confidence: incident ? incident.confidence : null,\n  checks_performed: agentResult.checks_performed || [],\n  requires_approval: incident ? incident.requires_approval : false,\n  runbook: incident ? incident.runbook : null,\n  validation_framework: clean ? 'Robot Framework' : 'pytest',\n  timestamp: new Date().toISOString(),\n};\n\nconst slack_message = [\n  `${emoji} *ETL Production Support* — ${clean ? 'No Incident' : `Incident ${summary.incident_id} (${summary.severity})`}`,\n  `*Run ID:* ${summary.run_id}`,\n  `*Impact:* ${summary.impact_summary}`,\n  summary.root_cause ? `*Root Cause:* ${summary.root_cause}` : '',\n  summary.recommended_action ? `*Recommended Action:* ${summary.recommended_action}` : '',\n  summary.runbook ? `*Runbook:* ${summary.runbook}` : '',\n  `*Confidence:* ${summary.confidence != null ? (summary.confidence * 100).toFixed(0) + '%' : 'n/a'}`,\n  `*Validation via:* ${summary.validation_framework}`,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { summary, slack_message, clean } }];"
       },
-      "id": "node-build-summary",
-      "name": "Build QA Summary",
+      "id": "node-build-incident-record",
+      "name": "Build Incident Record",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 300]
+      "position": [
+        1560,
+        300
+      ]
     },
     {
       "parameters": {
@@ -155,7 +182,7 @@
         "webhookUri": "={{ $env.SLACK_WEBHOOK_URL }}",
         "text": "={{ $json.slack_message }}",
         "otherOptions": {
-          "username": "QA Agent",
+          "username": "Triage Agent",
           "icon_emoji": ":robot_face:"
         }
       },
@@ -163,7 +190,10 @@
       "name": "Slack Alert",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
-      "position": [1780, 180]
+      "position": [
+        1780,
+        180
+      ]
     },
     {
       "parameters": {
@@ -188,78 +218,158 @@
       "name": "Jenkins Webhook",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1780, 420]
+      "position": [
+        1780,
+        420
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($('Build QA Summary').first().json.summary) }}"
+        "responseBody": "={{ JSON.stringify($('Build Incident Record').first().json.summary) }}"
       },
       "id": "node-respond",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 300]
+      "position": [
+        2000,
+        300
+      ]
     }
   ],
   "connections": {
     "Pipeline Trigger": {
       "main": [
-        [{"node": "Call QA Agent", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Call Triage Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Call QA Agent": {
+    "Call Triage Agent": {
       "main": [
-        [{"node": "Check Verdict", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Check Incident Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Check Verdict": {
+    "Check Incident Status": {
       "main": [
-        [{"node": "Run Robot Framework", "type": "main", "index": 0}],
-        [{"node": "Run pytest", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Run Robot Framework",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run pytest",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Run Robot Framework": {
       "main": [
-        [{"node": "Read RF Report", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Read RF Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Run pytest": {
       "main": [
-        [{"node": "Read pytest Report", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Read pytest Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Read RF Report": {
       "main": [
-        [{"node": "Merge Reports", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Merge Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Read pytest Report": {
       "main": [
-        [{"node": "Merge Reports", "type": "main", "index": 1}]
+        [
+          {
+            "node": "Merge Reports",
+            "type": "main",
+            "index": 1
+          }
+        ]
       ]
     },
     "Merge Reports": {
       "main": [
-        [{"node": "Build QA Summary", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Build Incident Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Build QA Summary": {
+    "Build Incident Record": {
       "main": [
         [
-          {"node": "Slack Alert", "type": "main", "index": 0},
-          {"node": "Jenkins Webhook", "type": "main", "index": 0}
+          {
+            "node": "Slack Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jenkins Webhook",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Slack Alert": {
       "main": [
-        [{"node": "Respond to Webhook", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Jenkins Webhook": {
       "main": [
-        [{"node": "Respond to Webhook", "type": "main", "index": 1}]
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 1
+          }
+        ]
       ]
     }
   },

@@ -112,10 +112,6 @@ def build_response(
         "clean": incident_dict is None,
         "checks_performed": _checks_performed(called_tools),
         "duration_ms": duration_ms,
-        # Backward compatibility only — n8n_workflows/qa_agent_workflow.json
-        # still reads $json.verdict. Remove this field once T0.5 rewires the
-        # workflow onto `incident`/`clean`, not before.
-        "verdict": "FAIL" if incident_dict else "PASS",
     }
 
 

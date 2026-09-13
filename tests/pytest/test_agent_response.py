@@ -85,7 +85,7 @@ class TestCleanRun:
         response = build_response(_event(), _agent_output(), ALL_TOOLS, 1234, config)
         assert response["incident"] is None
         assert response["clean"] is True
-        assert response["verdict"] == "PASS"
+        assert "verdict" not in response
 
     def test_clean_run_checks_performed_in_canonical_order(self, config):
         response = build_response(_event(), _agent_output(), ALL_TOOLS, 1234, config)
@@ -117,7 +117,6 @@ class TestRowDropFailureMode:
         response = build_response(_event(failure_mode="row_drop"), agent_output, ALL_TOOLS, 500, config)
 
         assert response["clean"] is False
-        assert response["verdict"] == "FAIL"
         assert response["incident"]["severity"] == "P2"
         assert response["incident"]["requires_approval"] is True
 
