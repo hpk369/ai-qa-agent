@@ -94,8 +94,8 @@ Now go back to your Slack app's **Interactivity & Shortcuts** page and
 set the **Request URL** to `{PUBLIC_WEBHOOK_BASE}/slack/action` (e.g.
 `https://triage.yourdomain.com/slack/action`) — Slack will send a test
 ping the moment you save this, so the agent server needs to already be
-running (`python agent/agent.py`, or via `docker compose up`) before you
-save it.
+running (`python agent/agent.py`, or via `docker compose --profile lite up`)
+before you save it.
 
 ## 6. Populate `.env`
 
@@ -118,7 +118,7 @@ covered by the test suite.
 ```bash
 # Start the agent server (needs ANTHROPIC_API_KEY set too)
 python agent/agent.py
-# or: docker compose up agent_server
+# or: docker compose --profile lite up agent_server
 
 # Trigger a run that will open an incident
 INJECT_FAILURE=row_drop python mock_pipeline/producer.py

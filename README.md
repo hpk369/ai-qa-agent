@@ -134,10 +134,12 @@ An LLM asked to both observe evidence and assign a severity label will occasiona
 cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
 
-docker compose up
+docker compose --profile lite up
 ```
 
 Then open n8n at http://localhost:5678 (admin/password) and import `n8n_workflows/qa_agent_workflow.json`.
+
+**`--profile lite` is required** as of the Phase 2 compose split — `docker-compose.yml` now also defines a `hadoop` profile (HDFS/YARN/Hive, landing in `T2.2`–`T2.4`; not a complete stack yet, see [`docs/hadoop-stack.md`](docs/hadoop-stack.md) once it exists), and every service belongs to one or both profiles. A bare `docker compose up` with no `--profile` flag now starts nothing.
 
 ## Demo: Trigger Failure Modes
 

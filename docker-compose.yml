@@ -1,9 +1,13 @@
-version: "3.9"
-
 services:
+  # ── Shared infra: used by both the lite (Postgres) and hadoop
+  # (HDFS/YARN/Hive) paths. postgres additionally backs the Hive
+  # metastore once the hadoop profile is up (see T2.3, hive-metastore.env
+  # for HIVE_METASTORE_DB) — same container, a second database inside it,
+  # not a second Postgres instance.
   postgres:
     image: postgres:15
     restart: unless-stopped
+    profiles: ["lite", "hadoop"]
     environment:
       POSTGRES_DB: pipeline_qa
       POSTGRES_USER: qa_user
@@ -12,6 +16,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # T2.3 adds an init script here to create the hive_metastore
+      # database inside this same container.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qa_user -d pipeline_qa"]
       interval: 10s
@@ -21,6 +27,7 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     restart: unless-stopped
+    profiles: ["lite", "hadoop"]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -30,6 +37,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     restart: unless-stopped
+    profiles: ["lite", "hadoop"]
     depends_on:
       - zookeeper
     ports:
@@ -48,11 +56,15 @@ services:
       timeout: 10s
       retries: 5
 
+  # ── Lite profile: the original Postgres-mock path. Unchanged behavior —
+  # `docker compose --profile lite up` must bring up exactly what a bare
+  # `docker compose up` brought up before profiles existed.
   tool_server:
     build:
       context: .
       dockerfile: agent_tools/Dockerfile
     restart: unless-stopped
+    profiles: ["lite"]
     ports:
       - "8000:8000"
     depends_on:
@@ -78,6 +90,7 @@ services:
       context: .
       dockerfile: agent/Dockerfile
     restart: unless-stopped
+    profiles: ["lite"]
     ports:
       - "8001:8001"
     depends_on:
@@ -89,6 +102,13 @@ services:
       TOOL_SERVER_PORT: 8000
       AGENT_SERVER_HOST: 0.0.0.0
       AGENT_SERVER_PORT: 8001
+      SLACK_MODE: ${SLACK_MODE:-stub}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_CHANNEL_ALERTS: ${SLACK_CHANNEL_ALERTS:-}
+      SLACK_CHANNEL_P1: ${SLACK_CHANNEL_P1:-}
+      SLACK_CHANNEL_CHANGES: ${SLACK_CHANNEL_CHANGES:-}
+      SLACK_CHANNEL_DAILY: ${SLACK_CHANNEL_DAILY:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 10s
@@ -98,6 +118,7 @@ services:
   n8n:
     image: n8nio/n8n:latest
     restart: unless-stopped
+    profiles: ["lite"]
     ports:
       - "5678:5678"
     depends_on:
@@ -118,6 +139,12 @@ services:
       - ./n8n_workflows:/workflows
       - ./reports:/qa/reports
       - ./tests:/qa/tests
+
+  # ── Hadoop profile: HDFS/YARN/Hive/Spark services land here in T2.2-T2.4.
+  # Not yet added — this commit (T2.1) only establishes the profile split
+  # itself. `docker compose --profile hadoop up` today brings up only the
+  # shared infra above (postgres/zookeeper/kafka); it is not yet a
+  # complete stack. See docs/hadoop-stack.md once T2.2 lands.
 
 volumes:
   postgres_data:
