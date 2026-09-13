@@ -1,0 +1,13 @@
+-- Creates the hive_metastore database inside the SAME Postgres 15
+-- container the lite profile already uses (expansion-plan.md: "metastore
+-- DB on the existing Postgres 15 container" — a second database, not a
+-- second Postgres instance).
+--
+-- Postgres's official image only runs scripts in
+-- /docker-entrypoint-initdb.d on first container initialization (an
+-- empty data directory). If you already have a lite-profile postgres_data
+-- volume from before the hadoop profile existed, this script will NOT
+-- run automatically — either `docker compose down -v` to start the
+-- volume fresh, or create the database manually:
+--   docker compose exec postgres psql -U qa_user -d pipeline_qa -c "CREATE DATABASE hive_metastore;"
+CREATE DATABASE hive_metastore;

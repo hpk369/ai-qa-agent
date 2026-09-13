@@ -16,8 +16,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # T2.3 adds an init script here to create the hive_metastore
-      # database inside this same container.
+      # Creates the hive_metastore database inside this same container —
+      # only runs on a fresh (empty) volume, see the script's own header.
+      - ./hadoop/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qa_user -d pipeline_qa"]
       interval: 10s
@@ -234,8 +235,81 @@ services:
     ports:
       - "8042:8042" # NodeManager web UI
 
+  # ── Hive (T2.3) — metastore + HiveServer2, metastore DB on the
+  # existing postgres container (see hadoop/postgres-init/). Needs a
+  # live internet connection at startup to fetch the Postgres JDBC
+  # driver (Hive images don't bundle one) — see docs/hadoop-stack.md if
+  # that's not available where this runs.
+  hive-jdbc-driver-init:
+    image: curlimages/curl:8.10.1
+    profiles: ["hadoop"]
+    command: >
+      sh -c "curl -sSf -o /jars/postgresql-42.7.3.jar
+      https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar
+      && echo 'postgresql JDBC driver downloaded'"
+    volumes:
+      - hive_jdbc_driver:/jars
+
+  hive-metastore:
+    image: apache/hive:4.0.0
+    hostname: hive-metastore
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    environment:
+      SERVICE_NAME: metastore
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+      # HIVE_AUX_JARS_PATH is Hive's own long-standing mechanism for
+      # extra JDBC drivers — not something specific to this image, so
+      # this one is the part of the Hive config here worth trusting most.
+      HIVE_AUX_JARS_PATH: /jars/postgresql-42.7.3.jar
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/hive_metastore
+        -Djavax.jdo.option.ConnectionUserName=qa_user
+        -Djavax.jdo.option.ConnectionPassword=qa_pass
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+      - ./hadoop/config/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      - hive_jdbc_driver:/jars:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+      hive-jdbc-driver-init:
+        condition: service_completed_successfully
+    ports:
+      - "9083:9083" # Thrift metastore — acceptance check: schematool -info should succeed once schema is initialised
+
+  hiveserver2:
+    image: apache/hive:4.0.0
+    hostname: hiveserver2
+    restart: unless-stopped
+    profiles: ["hadoop"]
+    user: root
+    environment:
+      SERVICE_NAME: hiveserver2
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+      HIVE_AUX_JARS_PATH: /jars/postgresql-42.7.3.jar
+      SERVICE_OPTS: >-
+        -Dhive.metastore.uris=thrift://hive-metastore:9083
+    volumes:
+      - ./hadoop/config:/opt/hadoop/etc/hadoop:ro
+      - ./hadoop/config/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      - hive_jdbc_driver:/jars:ro
+    depends_on:
+      hive-metastore:
+        condition: service_started
+      namenode:
+        condition: service_healthy
+    ports:
+      - "10000:10000" # JDBC/Thrift — acceptance check: an external table over HDFS Parquet is queryable through here
+      - "10002:10002" # Web UI
+
 volumes:
   postgres_data:
   n8n_data:
   namenode_data:
   datanode_data:
+  hive_jdbc_driver:

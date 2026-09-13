@@ -14,7 +14,10 @@ own egress proxy). That means:
 - **Verified for real:** RAM (15Gi available, clears `IMPLEMENTATION.md`'s
   ~12GB gate), `docker-compose.yml` syntax and profile resolution
   (`docker compose --profile hadoop config` — parses cleanly, resolves to
-  the expected service list, `--profile lite` is provably unaffected).
+  the expected service list, `--profile lite` is provably unaffected), and
+  the Postgres JDBC driver URL `hive-jdbc-driver-init` downloads (fetched
+  it directly in this sandbox and confirmed it's a real, valid JAR —
+  Maven Central isn't behind the same block Docker Hub is here).
 - **Written, not run:** every Hadoop/YARN/Hive service definition below.
   The `core-site.xml`/`hdfs-site.xml`/`yarn-site.xml`/`mapred-site.xml`
   values are standard, well-documented single-node settings, and the
@@ -82,13 +85,53 @@ docker compose exec resourcemanager yarn jar \
   compose down -v` to drop the `namenode_data`/`datanode_data` volumes
   first, or the NameNode and DataNode will disagree about cluster ID.
 
-## T2.3 — Hive (not yet written)
+## T2.3 — Hive
 
-Planned: `hive-metastore` + `hiveserver2`, metastore backed by the
-existing `postgres` container as a second database
-(`hadoop/postgres-init/` will add the `CREATE DATABASE hive_metastore`
-init script), `schematool -dbType postgres -initSchema` run once before
-first use per `IMPLEMENTATION.md`'s named pitfall.
+Services: `hive-metastore`, `hiveserver2` (both `apache/hive:4.0.0`), plus
+a one-shot `hive-jdbc-driver-init` container that downloads the Postgres
+JDBC driver (Hive images don't bundle one) into a shared volume mounted
+at `/jars` in both Hive containers via `HIVE_AUX_JARS_PATH` — a
+long-standing, well-documented Hive mechanism, not something specific to
+this image, so it's the part of this setup worth trusting most.
+
+```bash
+docker compose --profile hadoop up hive-metastore hiveserver2
+```
+
+**Schema initialisation** (`IMPLEMENTATION.md`'s named pitfall — "the Hive
+metastore schema must be initialised with `schematool` before first
+use"): the `apache/hive` image's own entrypoint is documented to run this
+automatically on first metastore start when `SERVICE_NAME=metastore` (set
+here) detects an uninitialised schema. This is written to rely on that,
+**not verified in this sandbox**. If `hive-metastore`'s logs show a
+schema-not-found error instead, run it manually:
+
+```bash
+docker compose exec hive-metastore \
+  /opt/hive/bin/schematool -dbType postgres -initSchema
+```
+
+**Acceptance check** (`IMPLEMENTATION.md` T2.3 — an external table over
+HDFS Parquet is queryable):
+
+```bash
+docker compose exec hiveserver2 beeline -u jdbc:hive2://localhost:10000 \
+  -e "CREATE EXTERNAL TABLE test_ext (id INT, name STRING)
+      STORED AS PARQUET LOCATION 'hdfs://namenode:9000/test_ext';
+      SELECT * FROM test_ext;"
+```
+
+### Additional pitfall found writing this (not in `IMPLEMENTATION.md`)
+
+**Hive images don't bundle a Postgres JDBC driver** — only Derby (and
+sometimes MySQL) ship by default, so pointing `ConnectionURL` at Postgres
+without also supplying the driver jar fails with a
+`ClassNotFoundException: org.postgresql.Driver`, not an obviously
+metastore-related error. `hive-jdbc-driver-init` exists specifically to
+avoid that. It needs a live internet connection to Maven Central
+(`repo1.maven.org`) at first startup — if that's not available where this
+runs, pre-populate the `hive_jdbc_driver` volume with
+`postgresql-42.7.3.jar` some other way before starting `hive-metastore`.
 
 ## T2.4 — Spark transform (not yet written)
 
