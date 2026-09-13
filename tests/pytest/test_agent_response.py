@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import pytest
 
+from agent import evidence as evidence_module
 from agent import incident as incident_module
 from agent.agent import build_response
 from agent.severity import load_config
@@ -27,6 +28,13 @@ from agent.severity import load_config
 def incidents_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(incident_module, "INCIDENTS_DIR", tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def evidence_dir(tmp_path, monkeypatch):
+    evidence_path = tmp_path / "evidence"
+    monkeypatch.setattr(evidence_module, "EVIDENCE_DIR", evidence_path)
+    return evidence_path
 
 
 @pytest.fixture(scope="module")
@@ -119,6 +127,18 @@ class TestRowDropFailureMode:
         assert response["clean"] is False
         assert response["incident"]["severity"] == "P2"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-001-row-shortfall.md"
+
+    def test_evidence_bundle_is_collected_on_open(self, config, evidence_dir):
+        agent_output = _agent_output(
+            detected_by="sql_validator",
+            signals={**_clean_signals(), "row_variance_pct": 40.0},
+        )
+        response = build_response(_event(failure_mode="row_drop"), agent_output, ALL_TOOLS, 500, config)
+
+        incident_id = response["incident"]["incident_id"]
+        assert (evidence_dir / incident_id / "manifest.json").exists()
+        assert response["incident"]["evidence"]  # at least one artifact path recorded
 
 
 class TestSchemaDriftFailureMode:
@@ -138,6 +158,7 @@ class TestSchemaDriftFailureMode:
 
         assert response["incident"]["severity"] == "P1"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-002-schema-drift.md"
 
 
 class TestNullSpikeFailureMode:
@@ -156,6 +177,7 @@ class TestNullSpikeFailureMode:
 
         assert response["incident"]["severity"] == "P3"
         assert response["incident"]["requires_approval"] is False
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-003-null-spike.md"
 
 
 class TestLatencyFailureMode:
@@ -174,6 +196,7 @@ class TestLatencyFailureMode:
 
         assert response["incident"]["severity"] == "P2"
         assert response["incident"]["requires_approval"] is True
+        assert response["incident"]["runbook"] == "docs/runbooks/RB-004-consumer-lag.md"
 
 
 class TestChecksPerformed:

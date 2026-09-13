@@ -1,0 +1,32 @@
+{
+  "display_information": {
+    "name": "ETL Triage Agent",
+    "description": "Posts and manages ETL production support incidents — see github.com/hpk369/ai-qa-agent",
+    "background_color": "#1a1a1a"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Triage Agent",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "chat:write.public",
+        "reactions:read",
+        "channels:history"
+      ]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://REPLACE-WITH-YOUR-TUNNEL-HOSTNAME/slack/action"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

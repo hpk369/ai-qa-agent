@@ -1,0 +1,88 @@
+[
+  {
+    "text": {
+      "emoji": true,
+      "text": "\u2705 RESOLVED \u2014 INC-20260912-0214",
+      "type": "plain_text"
+    },
+    "type": "header"
+  },
+  {
+    "text": {
+      "text": "Customer dimension is missing roughly 40% of records; three downstream jobs blocked.",
+      "type": "mrkdwn"
+    },
+    "type": "section"
+  },
+  {
+    "fields": [
+      {
+        "text": "*Affected job:*\ncx_customer_load",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "*Affected objects:*\ntarget.customer_dim, target.account_balance_fact",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "*Rows loaded / expected:*\n889758 / 1482930",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "*Detected by:*\nsql_validator",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "*Confidence:*\n95%",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "*Status:*\nresolved",
+        "type": "mrkdwn"
+      }
+    ],
+    "type": "section"
+  },
+  {
+    "text": {
+      "text": "*Root cause:*\n40,000 records dropped during deduplication in CustomerTransformStep.",
+      "type": "mrkdwn"
+    },
+    "type": "section"
+  },
+  {
+    "text": {
+      "text": "*Recommended action:*\nInspect the deduplication step for partition skew.\n*Runbook:* `docs/runbooks/RB-001-row-shortfall.md`",
+      "type": "mrkdwn"
+    },
+    "type": "section"
+  },
+  {
+    "text": {
+      "text": "*Evidence:*\n\u2022 `reports/evidence/INC-20260912-0214/recon.json`",
+      "type": "mrkdwn"
+    },
+    "type": "section"
+  },
+  {
+    "elements": [
+      {
+        "text": "Opened: 2026-09-12T02:14:33.000Z",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "Run ID: run-001",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "MTTA: 180s",
+        "type": "mrkdwn"
+      },
+      {
+        "text": "MTTR: 5400s",
+        "type": "mrkdwn"
+      }
+    ],
+    "type": "context"
+  }
+]
