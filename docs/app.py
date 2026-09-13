@@ -1,7 +1,18 @@
 """
-Demo server for the AI QA Agent pipeline.
+Demo server for the ETL Production Support Triage Agent pipeline.
 Self-contained: runs without Docker, Postgres, or Kafka.
 Streams agent reasoning step-by-step via SSE.
+
+NOTE on terminology: this demo's SSE payload and its VERDICTS table
+intentionally still speak the pre-T0.4 `verdict`/PASS-FAIL contract,
+because docs/index.html and docs/index_v2.html (the static pages that
+actually render for anyone visiting the GitHub Pages demo) consume that
+exact shape and are out of scope for T0.5's terminology sweep — per
+IMPLEMENTATION.md, the demo pages get their real rewrite in Phase 5
+(T5.3: "Final README and demo page rewrite reflecting the finished
+system"), once the whole system's shape has stopped changing. Renaming
+the fields here without rewriting the HTML/JS that reads them would
+silently break the live demo.
 """
 
 from __future__ import annotations
@@ -26,7 +37,7 @@ from agent_tools.sql_validator import SQLValidator
 from agent_tools.log_analyser import LogAnalyser
 from agent_tools.schema_comparator import SchemaComparator
 
-app = FastAPI(title="AI QA Agent Demo")
+app = FastAPI(title="ETL Production Support Triage Agent — Demo")
 
 # ---------- Simulated agent reasoning per failure mode ----------
 
