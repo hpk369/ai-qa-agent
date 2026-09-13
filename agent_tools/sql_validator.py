@@ -1,6 +1,15 @@
 """
 SQL Validator — checks row counts, null rates, and duplicates between source and target tables.
-Accepts either a real psycopg2 connection or injected mock data for testing.
+Accepts a real psycopg2 connection, a Hive/pyhive connection (T2.5), or
+injected mock data for testing.
+
+Unlike agent_tools/schema_comparator.py, no Hive-specific query branch is
+needed here: every query below (COUNT(*), AVG(CASE WHEN ... END), COUNT(*)
+- COUNT(DISTINCT ...)) is standard SQL that Hive's cursor executes
+unmodified, and pyhive's cursor implements the same DB-API 2.0
+.cursor()/.execute()/.fetchone() shape sqlite3 and psycopg2 already do —
+schema introspection (information_schema vs. DESCRIBE) is the only place
+the three engines actually diverge.
 """
 
 from __future__ import annotations
@@ -18,9 +27,13 @@ ROW_DROP_THRESHOLD = float(os.getenv("ROW_DROP_THRESHOLD", "5.0"))
 
 
 class SQLValidator:
-    def __init__(self, db_conn=None, failure_mode: FailureMode | None = None):
+    def __init__(self, db_conn=None, failure_mode: FailureMode | None = None, db_kind: str | None = None):
+        """db_kind ("sqlite" | "postgres" | "hive") is accepted for
+        interface parity with SchemaComparator and future use, but
+        doesn't change any query here — see the module docstring."""
         self.db_conn = db_conn
         self.failure_mode = failure_mode or get_failure_mode()
+        self.db_kind = db_kind
 
     def _get_row_count(self, table: str) -> int:
         if self.db_conn is not None:

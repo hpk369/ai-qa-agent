@@ -170,11 +170,43 @@ pip install -r requirements-spark.txt
 pytest tests/pytest/test_cx_customer_load.py -v
 ```
 
-## T2.5 — Port validation (not yet written)
+## T2.5 — Port validation
 
-Planned: extend `agent_tools/sql_validator.py` and
-`agent_tools/schema_comparator.py` to support a Hive/Spark SQL connection
-mode alongside their existing mock/SQLite/Postgres paths.
+`agent_tools/schema_comparator.py` and `agent_tools/sql_validator.py` both
+gained an explicit `db_kind: str | None` constructor parameter
+(`"sqlite"` | `"postgres"` | `"hive"`) alongside their existing
+`db_conn`/auto-detect behaviour, which is unchanged when `db_kind` is left
+unset.
+
+- **`SchemaComparator` needed a genuine new code path**: Postgres's
+  `information_schema.columns` query doesn't apply to Hive in the general
+  case, so `_get_schema` now has a `DESCRIBE {table}` branch for
+  `db_kind="hive"`, parsing output up to (and excluding) a partitioned
+  table's `# Partition Information` section.
+- **`SQLValidator` needed no query changes at all** — `COUNT(*)`,
+  `AVG(CASE WHEN ... END)`, and `COUNT(*) - COUNT(DISTINCT ...)` are all
+  standard SQL Hive executes unmodified through the same DB-API 2.0
+  `.cursor()`/`.execute()`/`.fetchone()` shape sqlite3 and psycopg2
+  already used here — confirmed with a fake Hive-shaped connection, not
+  just asserted from documentation.
+
+`db_kind` names the connection type explicitly rather than relying purely
+on `isinstance(conn, pyhive.hive.Connection)` for two reasons: pyhive is
+an optional, hadoop-profile-only dependency this module shouldn't
+require just to import (it's imported in a `try/except ImportError`, same
+pattern as `kafka-python` elsewhere in this repo), and it makes the Hive
+path testable with a plain fake connection object with no real pyhive
+install needed — confirmed both ways: `pip install pyhive` hits the same
+`setuptools<60` issue `requirements-spark.txt` documents for pyspark, and
+once installed in the venv (`pip install pyhive thrift`), it imports and
+constructs `pyhive.hive.Connection` cleanly (though not tested making an
+actual connection — that needs a live HiveServer2, which this sandbox
+doesn't have).
+
+Not yet done: nothing in `agent_tools/tool_server.py` actually constructs
+a Hive/pyhive connection and passes it to these tools — that's part of
+Phase 3's tool rewrite (Recon Checker et al.), where `db_kind="hive"`
+gets used for real rather than only in tests.
 
 ## Resource usage — to fill in once run for real
 
