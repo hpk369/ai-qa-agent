@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hpk369/ai-qa-agent/schemas/incident.schema.json",
+  "title": "Incident",
+  "description": "System-of-record for an ETL production support incident. Slack is a view onto this object, not the other way around — see expansion-plan.md section 4.A2/A6.",
+  "type": "object",
+  "properties": {
+    "incident_id": {
+      "type": "string",
+      "pattern": "^INC-[0-9]{8}-[0-9]{4}(-[0-9]+)?$",
+      "description": "INC-YYYYMMDD-HHMM; a -2, -3, ... suffix is appended on collision."
+    },
+    "opened_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+      "description": "ISO 8601, UTC, Z suffix."
+    },
+    "detected_by": {
+      "type": "string",
+      "description": "Tool name that raised the incident, e.g. sql_validator."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["P1", "P2", "P3", "P4"]
+    },
+    "severity_rationale": {
+      "type": "string",
+      "description": "Derived from severity classification's matched_conditions."
+    },
+    "affected_job": {
+      "type": "string"
+    },
+    "affected_objects": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Schema-qualified table names."
+    },
+    "rows_expected": {
+      "type": ["integer", "null"]
+    },
+    "rows_loaded": {
+      "type": ["integer", "null"]
+    },
+    "impact_summary": {
+      "type": "string",
+      "description": "Business terms, not stack terms. Technical detail belongs in root_cause."
+    },
+    "evidence": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Repo-relative paths."
+    },
+    "root_cause": {
+      "type": ["string", "null"],
+      "description": "Null until determined."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "runbook": {
+      "type": ["string", "null"],
+      "description": "Path under docs/runbooks/."
+    },
+    "recommended_action": {
+      "type": ["string", "null"]
+    },
+    "requires_approval": {
+      "type": "boolean"
+    },
+    "slack_channel": {
+      "type": ["string", "null"],
+      "description": "Channel ID."
+    },
+    "slack_ts": {
+      "type": ["string", "null"],
+      "description": "Parent message ts — the join key between the incident record and its Slack thread."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "acknowledged", "remediating", "verifying", "resolved", "false_positive"]
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+          },
+          "actor": {"type": "string"},
+          "event": {"type": "string"},
+          "detail": {"type": "string"}
+        },
+        "required": ["at", "actor", "event", "detail"],
+        "additionalProperties": false
+      }
+    },
+    "mtta_seconds": {
+      "type": ["integer", "null"]
+    },
+    "mttr_seconds": {
+      "type": ["integer", "null"]
+    }
+  },
+  "required": [
+    "incident_id",
+    "opened_at",
+    "detected_by",
+    "severity",
+    "severity_rationale",
+    "affected_job",
+    "affected_objects",
+    "rows_expected",
+    "rows_loaded",
+    "impact_summary",
+    "evidence",
+    "root_cause",
+    "confidence",
+    "runbook",
+    "recommended_action",
+    "requires_approval",
+    "slack_channel",
+    "slack_ts",
+    "status",
+    "timeline",
+    "mtta_seconds",
+    "mttr_seconds"
+  ],
+  "additionalProperties": false
+}
