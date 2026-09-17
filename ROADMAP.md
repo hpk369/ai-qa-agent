@@ -39,7 +39,9 @@ Neither is a coding task, both block a phase, and both have been outstanding sin
 1. **Slack workspace + app + bot token + 4 channels + tunnel.** `docs/PHASE1_SETUP.md` lists
    every step. Until this exists, Phase 1 is "code complete, unverified" — which is an honest
    thing to say in an interview, but a weaker one than "running."
-2. **OCI VM provisioned.** `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §4.2. Blocks all of Track B.
+2. **OCI VM provisioned.** Walkthrough in
+   [`infra/bankdemo/docs/VM_SETUP.md`](infra/bankdemo/docs/VM_SETUP.md); spec in
+   `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §4.2. Blocks all of Track B.
 
 ---
 
@@ -157,7 +159,10 @@ nothing else — so it will never get done if it is not done now.
 
 ### B2 — bankdemo Phases 0–3.5 · 2–4 evenings · needs the VM **[HUMAN]**
 
-Follow `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §4–§6 and its Appendix A prompts.
+Provisioning walkthrough: **[`infra/bankdemo/docs/VM_SETUP.md`](infra/bankdemo/docs/VM_SETUP.md)**.
+Its §0 settles the shape-allowance question in §6's risk table before anything is built on it.
+
+Then follow `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §4–§6 and its Appendix A prompts.
 
 Sequence: scaffold → VM provisioning **[HUMAN]** → OS/storage → stack → **budget truth gate**.
 

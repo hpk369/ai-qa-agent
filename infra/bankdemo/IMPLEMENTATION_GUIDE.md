@@ -221,6 +221,7 @@ infra/bankdemo/
 ├── requirements-dev.txt         # ruff, pytest, pyspark (LINT/IDE ONLY — never install
 │                                #   into the runtime venv; it shadows /opt/spark/python)
 ├── docs/
+│   ├── VM_SETUP.md              # [HUMAN] OCI provisioning walkthrough (Phase 1)
 │   ├── PROGRESS.md              # phase checklist + pasted acceptance output
 │   ├── ARCHITECTURE.md          # generated summary of §2
 │   ├── RUNBOOK.md               # symptom → cause → fix (grows over time)
@@ -325,6 +326,10 @@ reinstating the dual-JDK handling. Do not do it mid-build.
 **Acceptance (Phase 0):** `make lint` passes on the scaffold; `tests/test_smoke.py` imports `bankdemo`.
 
 ### 4.2 Phase 1: provision the VM **[HUMAN]**
+
+> **Step-by-step walkthrough: [`docs/VM_SETUP.md`](docs/VM_SETUP.md).** It expands every step
+> below with console navigation, the capacity-error workarounds, and the disk-format safety
+> procedure. Start there; this section is the summary.
 
 1. In the OCI Console, create a compartment `bankdemo`, a VCN with an internet gateway (the "VCN with Internet Connectivity" wizard is fine), and a public subnet.
 2. Security list ingress: TCP 22 only. The source is your home IP/32 if you only use SSH from home. If GitHub Actions will SSH in, it must be `0.0.0.0/0`; compensate with key-only auth and fail2ban (§12).
