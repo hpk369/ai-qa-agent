@@ -185,6 +185,14 @@ Slack is where the incident lives for humans. The JSON record is the machine-rea
 
 ## 5. Track B — Stack migration
 
+> **⚠️ Build instructions superseded by `/ROADMAP.md` (2026-09-17).** Track B is now built on a
+> dedicated OCI VM (`infra/bankdemo/`), not in Docker Compose on the build machine. The
+> component analysis below — especially the Impala substitution reasoning and the honesty rule —
+> still stands and is still worth discussing. What changed: no Hive (does not fit 12 GB), no
+> Oozie (replaced by an Autosys-flavoured scheduler, which is closer to the JD anyway), and the
+> Postgres/Kafka mock is **kept permanently** as the lite demo path rather than retired. §9's
+> open question 1 is answered: 12 GB, verified by a budget gate before any workload is written.
+
 ### Target components and honest feasibility
 
 | Component | Plan | Notes |
@@ -233,6 +241,9 @@ Define the job as an Oozie coordinator with a daily frequency, a dataset depende
 ---
 
 ## 6. Phasing
+
+> **⚠️ Superseded by `/ROADMAP.md` §4.** Phases 0 and 1 below are complete. Phases 2–5 are
+> replaced by roadmap phases B0–B6, which are sequenced against the code that now exists.
 
 | Phase | Scope | Rough effort | Done when |
 |---|---|---|---|

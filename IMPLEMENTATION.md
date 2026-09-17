@@ -419,6 +419,22 @@ Demonstrate one incident opening, being acknowledged, approved, remediated, veri
 
 # PHASE 2 — Hadoop stack
 
+> **⚠️ SUPERSEDED by `/ROADMAP.md` §2–§4 (2026-09-17).** The Hadoop stack moved from Docker
+> Compose to a dedicated OCI VM, specified in `infra/bankdemo/IMPLEMENTATION_GUIDE.md`. T2.1–T2.5
+> below are **not to be built**: the laptop cannot hold the stack alongside the tooling, a VM
+> reproduces host-level failures (disk, inodes, OOM, systemd) that Compose cannot, and it can run
+> on a schedule unattended. `--profile lite` is now the permanent demo path rather than a
+> migration waypoint, and there is no Hive (it does not fit the 12 GB budget — Spark SQL over
+> HDFS Parquet covers the same ground, and the README must not imply Hive ran).
+>
+> Phases 3–4 below are likewise redirected: T3.1–T3.3 become roadmap **B5.2**, built against
+> bundle evidence rather than a live Compose stack; T3.4's failure modes become the F01–F17
+> fault catalog; T3.5 is dropped; Oozie is replaced by bankdemo's Autosys-flavoured
+> `scheduler/jobs.yaml`. Phase 5's scorecard becomes **B5.5**, and is finally buildable because
+> bankdemo's answer key supplies ground truth.
+>
+> The original text is kept below for provenance.
+
 **Do not begin without confirming available RAM.** Under roughly 12 GB, stop and report; Spark standalone is the honest fallback and the plan changes.
 
 Specified as objectives. Work them as separate sessions.
