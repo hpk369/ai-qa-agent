@@ -1019,7 +1019,7 @@ file path under `/home/bankops/` or `/tmp/` that is a regular file < 1 MB (it ru
 | BATCH | 3:30 | 8:30 | Scheduler runs the chain against a hard `batch_deadline` of 8:30; `batch` faults fire in 4:00–7:45; `stream` faults in 3:45–8:00 |
 | DRAIN | 8:30, or chain finished + 30 s | 9:00 | Stop producer; `kill -CONT` the consumer if it's stopped (F06), give it 20 s, then stop it; scheduler terminates anything still running (`TERMINATED`) |
 | COLLECT | 9:00 | 11:00 | Collector (§9) runs **while faults are still active**, so snapshots show the broken state |
-| CLEANUP | 11:00 | 13:00 | Kill stray YARN apps; revert all faults; remove run HDFS data and landing files beyond retention; stop stack; offline invariant checks (§8.5); write run_history; assemble and tar bundle; retention |
+| CLEANUP | 11:00 | 13:00 | Kill stray YARN apps; revert all faults; remove run HDFS data and landing files beyond retention; stop stack; offline invariant checks (§8.5); write run_history; assemble and tar bundle; write the demo-feed preview for `--source cron` runs (§9.6); retention |
 | END | | 13:00 | Print RUN_ID and BUNDLE |
 
 The earlier draft had DRAIN blocked until 8:00 even on a clean run and gave CLEANUP 1:30 —
@@ -1173,6 +1173,58 @@ Explicitly **not** copied: `RUN_DIR/state/` in its entirety.
 Tar with `tar -czf /data/runs/<run_id>.tar.gz -C /data/runs <run_id>.bundle`, `chown bankops`,
 remove the staging directory, keep the newest 20 bundles. Target size < 60 MB. Log a warning
 if exceeded.
+
+### 9.6 Demo feed — publishing fresh incidents to the public site
+
+The GitHub Pages demo serves visitors a **real, recent incident** rather than a canned
+example, and it does so instantly. Cron runs six times a day (§11.2) and each run selects
+1–3 faults at random, so the last 20 runs are a continuously replenishing pool of genuinely
+distinct incidents. A visitor cannot tell whether the run happened on their click or ninety
+minutes ago, which is the whole point: a live trigger would make them wait ~13 minutes for a
+run to finish, and nobody waits.
+
+**Two artefacts per run, deliberately split by size.**
+
+| Artefact | Size | Where | Why |
+|---|---|---|---|
+| `demo_preview.json` | a few KB | committed to `docs/demo-feed/<run_id>.json` in the repo | Same origin as GitHub Pages, so the page `fetch()`es it with **no CORS configuration anywhere** |
+| Full bundle `.tar.gz` | < 60 MB | stays on the VM; a curated few attached to a GitHub Release (roadmap B6.1) | A plain download link needs no CORS, and no page should pull 60 MB to render a summary |
+
+`CLEANUP` writes the preview alongside the bundle into `/data/demo-feed/<run_id>.json` and
+rewrites `/data/demo-feed/index.json` with the newest 20 (run_id, business_date, started_at,
+duration, primary ticket `short_description`, fault count). The preview carries:
+
+- `ticket.json` in full
+- every line of `logs/alerts.log`
+- the `job_control` rows for the run (job, status, timings, SLA outcome)
+- phase timings from `run_meta.json`
+- **for demo-class runs only**, the resolved fault list with `root_cause`, `resolution` and
+  `preventive_action` — the published answer
+
+**Demo class vs practice class.** These are different things and must not be conflated:
+
+| Class | Trigger | Preview published | Answer published |
+|---|---|---|---|
+| **demo** | `--source cron` | yes | **yes, deliberately** — explaining the answer is the demo's job |
+| **practice** | `--source cli` (you, working a bundle) | no | never — the key stays in `/var/lib/bankdemo/keys/` |
+
+Because demo runs publish `(seed → faults)` pairs, they use a **separate salt**
+(`BANKDEMO_DEMO_SALT`) from the practice pool's `BANKDEMO_FAULT_SALT` (§10.2). Publishing
+demo answers then reveals nothing about any run you intend to practise on, and the two pools
+stay independent no matter how many demo bundles accumulate.
+
+**Publication keeps write credentials off the VM.** A scheduled workflow
+(`.github/workflows/publish-demo-feed.yml`, every 6 hours) joins the tailnet exactly as
+§11.3 does, rsyncs `/data/demo-feed/` into `docs/demo-feed/`, and commits only if something
+changed. The VM never holds a GitHub token, a deploy key, or push access — it only ever
+serves files to an authenticated puller. Guard the commit step with a check that
+`index.json` parses and every referenced preview exists, so a half-written feed can never be
+published.
+
+**Acceptance:** after three cron runs, `docs/demo-feed/index.json` lists three entries, each
+resolving to a preview file under 32 KB; the demo page renders a random entry and the
+"different incident" control swaps it without a network round trip to anything but the repo's
+own origin; and no preview for a `--source cli` run ever appears.
 
 ### 9.5 Bundle contract (what `agent/` consumes)
 

@@ -236,16 +236,28 @@ drill), then a full-repo claim audit against `IMPLEMENTATION.md` ground rule 2: 
 component described as real, no Hive implied, the lite path's status stated plainly, and the
 demo page updated to reflect what the finished system actually does.
 
-**B6.1 — Publish sample bundles.** Attach 2–3 redacted run bundles to a GitHub Release, each
-paired with its written postmortem (this is `IMPLEMENTATION.md` T5.1, finally producible from
-real runs with real timestamps). This is what lets a reviewer evaluate the project properly
-without provisioning anything: they get the genuine artefact — real YARN container logs, real
-`dfsadmin` output, a real alert timeline — and can work their own triage against the published
-postmortem. Strictly better evidence than a screenshot, because it can be grepped.
+**B6.1 — The live demo feed.** Cron runs six times a day and each picks 1–3 faults at random,
+so the last 20 runs are a continuously replenishing pool of real, distinct incidents. Serve the
+demo site a random recent one, instantly, with a "different incident" control
+(`infra/bankdemo/IMPLEMENTATION_GUIDE.md` §9.6).
 
-Safe by construction, but verify both properties before the first release rather than after:
-§9.1's redaction strips credentials, and §10.2's salted fault selection means the embedded seed
-does not reveal the answer key.
+This is what "let visitors get a fresh set of logs" actually wants. A literal request-a-run
+button would make the visitor wait ~13 minutes for the stack to finish, and nobody waits — but
+they cannot tell whether the incident they're handed was generated on their click or ninety
+minutes ago. Same artefact, no queue, no wait, and no new attack surface on a box that is now
+deliberately outbound-only.
+
+The design splits by size so nothing needs CORS: a few-KB `demo_preview.json` per run is
+committed into `docs/demo-feed/` (same origin as Pages, so `fetch()` just works), while the
+60 MB tarball stays on the VM with a curated few attached to a GitHub Release as plain download
+links. A scheduled workflow harvests previews over the tailnet, so the VM never holds a GitHub
+token or push access.
+
+Two properties are load-bearing and must be verified before the first publish, not after:
+§9.1's redaction strips credentials, and §10.2's salted selection means a published seed does
+not reveal the answer key. Demo runs additionally use a **separate salt** from the practice
+pool, so publishing demo answers — which is the demo's whole job — can never leak a run you
+intend to practise on.
 
 **B6.2 — Make the rebuild drill a reviewer path, not just a test.** `infra/bankdemo/docs/VM_SETUP.md`
 plus `make deploy` should take a stranger with an Always Free account from nothing to a running

@@ -485,15 +485,21 @@ What reviewers can actually do, in increasing order of effort:
 |---|---|---|
 | None | The [GitHub Pages demo](https://hpk369.github.io/ai-qa-agent/) — client-side simulation of severity classification and the Slack Block Kit output | **Exists** |
 | ~2 min | `docker compose --profile lite up` — runs the real `agent/` triage code against the Postgres/Kafka mock. This is why the lite path is kept permanently (`/ROADMAP.md` §2) | **Exists** |
-| ~20 min | Download a **published sample bundle** and triage it themselves: read `ticket.json`, work the evidence, fill in `RCA_TEMPLATE.yaml`, then compare against the published postmortem | **Roadmap B6** |
+| None | A **random recent real incident**, served instantly from the live demo feed — cron generates a fresh one six times a day, each with different randomly-selected faults (`../IMPLEMENTATION_GUIDE.md` §9.6) | **Roadmap B6.1** |
+| ~20 min | Download a **published sample bundle** and triage it themselves: read `ticket.json`, work the evidence, fill in `RCA_TEMPLATE.yaml`, then compare against the published postmortem | **Roadmap B6.1** |
 | ~1 hour | Provision their own Always Free VM and run this document plus `make deploy`. The installer is idempotent and the Phase 9 rebuild drill (`../IMPLEMENTATION_GUIDE.md` §12) exists precisely to prove a stranger can do this | **Roadmap B6** |
 
-The third row is the one worth building deliberately, and it is the closest thing to "anyone can
-run this stack": attach two or three redacted bundles to a GitHub Release, each paired with the
-written postmortem for that incident. A reviewer then gets the genuine artefact — real YARN
-container logs, real `dfsadmin` output, a real alert timeline — without needing any
-infrastructure, and can check their own triage against yours. It is also strictly better
-evidence than a screenshot, because they can grep it.
+Rows two and three are the ones worth building deliberately.
+
+The **live feed** is the closest thing to "let visitors run the stack", and it is better than
+the literal version: a real request-a-run button would make them wait ~13 minutes for the run
+to finish, whereas a visitor cannot tell whether the incident they were handed was generated on
+their click or ninety minutes ago. Instant, and no public trigger to secure.
+
+The **downloadable bundle** gives a reviewer the genuine artefact — real YARN container logs,
+real `dfsadmin` output, a real alert timeline — without any infrastructure, and lets them check
+their own triage against the published postmortem. Strictly better evidence than a screenshot,
+because they can grep it.
 
 Publishing bundles is safe by construction: §9.1's redaction strips credentials, and §10.2's
 salted fault selection means the embedded seed does not reveal the answer key. Both of those
