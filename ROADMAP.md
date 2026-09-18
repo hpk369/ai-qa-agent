@@ -229,12 +229,32 @@ Everything before this is infrastructure. This is where the two halves meet.
 **Done when:** a bundle lands, the agent opens a Slack incident from it unattended, and the
 scorecard has a real N with real misses.
 
-### B6 — Hardening and honesty pass · 1–2 evenings
+### B6 — Hardening, publication, honesty pass · 2–3 evenings
 
-bankdemo Phases 8–9 (cron, GitHub Actions, fail2ban, reboot test, rebuild drill), then a
-full-repo claim audit against `IMPLEMENTATION.md` ground rule 2: no simulated component
-described as real, no Hive implied, the lite path's status stated plainly, and the demo page
-updated to reflect what the finished system actually does.
+bankdemo Phases 8–9 (cron, GitHub Actions over Tailscale, fail2ban, reboot test, rebuild
+drill), then a full-repo claim audit against `IMPLEMENTATION.md` ground rule 2: no simulated
+component described as real, no Hive implied, the lite path's status stated plainly, and the
+demo page updated to reflect what the finished system actually does.
+
+**B6.1 — Publish sample bundles.** Attach 2–3 redacted run bundles to a GitHub Release, each
+paired with its written postmortem (this is `IMPLEMENTATION.md` T5.1, finally producible from
+real runs with real timestamps). This is what lets a reviewer evaluate the project properly
+without provisioning anything: they get the genuine artefact — real YARN container logs, real
+`dfsadmin` output, a real alert timeline — and can work their own triage against the published
+postmortem. Strictly better evidence than a screenshot, because it can be grepped.
+
+Safe by construction, but verify both properties before the first release rather than after:
+§9.1's redaction strips credentials, and §10.2's salted fault selection means the embedded seed
+does not reveal the answer key.
+
+**B6.2 — Make the rebuild drill a reviewer path, not just a test.** `infra/bankdemo/docs/VM_SETUP.md`
+plus `make deploy` should take a stranger with an Always Free account from nothing to a running
+stack. The Phase 9 drill already proves this; B6.2 is stating it in the README as a supported
+route and fixing whatever the drill exposes.
+
+Note what is deliberately *not* offered: no public trigger for runs on the project's own VM.
+`bankdemo run` is root-executed, lock-serialised, argument-taking, and sits on a box holding the
+answer keys — see `infra/bankdemo/docs/VM_SETUP.md` §14.
 
 ---
 

@@ -1492,10 +1492,32 @@ eliminate it, and the idempotent installer remains the actual insurance. A logro
 
 ### 11.3 GitHub Actions: `.github/workflows/run-incident.yml`
 
-Repository secrets **[HUMAN]**: `VM_HOST`, `VM_USER` (bankops), `VM_SSH_KEY` (a **dedicated CI key**,
-not your personal key), `VM_KNOWN_HOSTS` (output of `ssh-keyscan -t ed25519 <VM_HOST>`).
-In `~bankops/.ssh/authorized_keys`, prefix the CI key with
+**The runner reaches the VM over Tailscale, not the public internet.** The VM's security list
+keeps a single `<your IP>/32` ingress rule on TCP 22 and never opens `0.0.0.0/0`; the VM dials
+out to the tailnet and the runner joins it as an ephemeral node for the duration of the job.
+Setup — the `tailscaled` install, the `tag:bankdemo` / `tag:ci` ACL, and the OAuth client — is
+in [`docs/VM_SETUP.md`](docs/VM_SETUP.md) §4–§4a, including why `--accept-dns=false` is
+mandatory on this host (MagicDNS would otherwise resolve the bare name `bankdemo` to a tailnet
+address, and HDFS needs the private IP).
+
+Repository secrets **[HUMAN]**:
+
+| Secret | Value |
+|---|---|
+| `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | Tailscale OAuth client scoped `auth_keys` write, tag `tag:ci` |
+| `VM_HOST` | the VM's **tailnet** name or `100.x.y.z` address, not its public IP |
+| `VM_USER` | `bankops` |
+| `VM_SSH_KEY` | a **dedicated CI key**, not your personal key |
+| `VM_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <tailnet address>`, taken from a machine already on the tailnet |
+
+Tailscale provides reachability, not authentication — the SSH key is still required. In
+`~bankops/.ssh/authorized_keys`, prefix the CI key with
 `no-port-forwarding,no-agent-forwarding,no-X11-forwarding`.
+
+(Tailscale SSH — `tailscale up --ssh` plus an `ssh` ACL section — would remove `VM_SSH_KEY` and
+`VM_KNOWN_HOSTS` entirely by authenticating on tailnet identity. It is a reasonable later
+refinement; the key-based path above is specified because it keeps working unchanged if
+Tailscale is ever dropped.)
 
 ```yaml
 name: Run incident simulation
@@ -1533,6 +1555,15 @@ jobs:
           if [[ -n "$SEED" && ! "$SEED" =~ ^[0-9]{1,9}$ ]]; then
             echo "::error::seed must be 1-9 digits"; exit 1
           fi
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          # Ephemeral by default: the node deregisters when the job ends, so the
+          # tailnet does not accumulate a dead machine per workflow run.
 
       - name: Configure SSH
         shell: bash
@@ -1586,8 +1617,12 @@ jobs:
 ```
 
 Security notes: inputs are passed only through `env` (never interpolated into shell text);
-seed validation happens both here and in the CLI. On a public repo, uploaded artifacts are
-downloadable by anyone. Bundles contain internal hostnames and usernames but no secrets
+seed validation happens both here and in the CLI. The VM has **no inbound exposure to the
+public internet** — reachability comes from the outbound tailnet connection, and the `tag:ci`
+ACL permits port 22 only. Do not switch this workflow to a self-hosted runner on the VM: this
+repository is public and forkable, and a self-hosted runner on a public repo is an
+execution path for fork pull requests (`docs/VM_SETUP.md` §4, Option A). On a public repo,
+uploaded artifacts are downloadable by anyone. Bundles contain internal hostnames and usernames but no secrets
 (§9.1 redaction), no answer key, and — because of the salted selection in §10.2 — no way to
 recompute the answer key from the published seed. All three of those are properties this
 workflow depends on; if any of them regresses, this step publishes the answers.

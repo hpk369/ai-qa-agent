@@ -89,7 +89,7 @@ Internet Connectivity**.
 The wizard creates the internet gateway, route table and default security list. Accept its
 defaults — the only thing to change is the ingress rule, next.
 
-## 4. Security list — TCP 22 and nothing else
+## 4. Security list — one ingress rule, TCP 22
 
 This is the one network control that matters. `../CLAUDE.md` makes it a hard constraint: only
 TCP 22 is reachable from outside, and every web UI (NameNode 9870, ResourceManager 8088,
@@ -97,21 +97,125 @@ Spark History 18080) is reached by SSH tunnel instead.
 
 **Where:** your VCN → **Security Lists** → **Default Security List** → **Ingress Rules**.
 
-Delete anything that isn't SSH, then confirm exactly one ingress rule remains:
+Delete anything that isn't SSH. What remains is **one** rule — this is an either/or, not a
+pair, because OCI security list rules are purely additive allow-rules with no deny and no
+precedence. `0.0.0.0/0` is a superset of your `/32`, so listing both means the `/32` does
+nothing except imply a restriction that isn't there:
 
-| Source CIDR | Protocol | Dest. port | Notes |
+| Source CIDR | Protocol | Dest. port | When |
 |---|---|---|---|
-| `<your IP>/32` | TCP | 22 | Preferred. Find yours with `curl -s ifconfig.me` |
+| `<your IP>/32` | TCP | 22 | **Default.** Find yours with `curl -s ifconfig.me` |
+| `0.0.0.0/0` | TCP | 22 | Only if you run the GitHub Actions trigger over the public internet — see below |
 
-**If you intend to use the GitHub Actions trigger** (`../IMPLEMENTATION_GUIDE.md` §11.3), the
-source must be `0.0.0.0/0` — GitHub's hosted-runner IP ranges are enormous and change
-constantly, so pinning them is not practical. That is a real exposure, and the spec
-compensates for it deliberately: key-only auth (§8), `fail2ban` with a 1-hour ban (§12), and
-a dedicated CI key restricted with `no-port-forwarding,no-agent-forwarding,no-X11-forwarding`
-in `authorized_keys`. Accept those compensations or skip the Actions trigger; don't open the
-CIDR and then skip the hardening.
+### If you want the GitHub Actions trigger
 
-Leave the egress rule alone — the installer downloads Hadoop, Spark and Kafka.
+The workflow in `../IMPLEMENTATION_GUIDE.md` §11.3 has to reach the VM from a GitHub-hosted
+runner. Three ways, and they are not equally good:
+
+| | Approach | Inbound exposure | Verdict |
+|---|---|---|---|
+| **A** | Self-hosted runner on the VM | None | **Avoid.** See below |
+| **B** | Tailscale, outbound-only overlay | None | **Recommended** — §4a |
+| **C** | Open `0.0.0.0/0`, compensate | SSH open to the internet | Works, weakest |
+
+**Option C** is defensible for a lab box — key-only auth (§8), `fail2ban` with a 1-hour ban
+(§12), and a CI key restricted with `no-port-forwarding,no-agent-forwarding,no-X11-forwarding`
+in `authorized_keys`. If you take it, take the compensations too. Pinning GitHub's ranges
+instead is not practical: they are published at `api.github.com/meta` under `actions`, but
+there are thousands of CIDRs that rotate, and OCI caps ingress rules per security list in the
+low hundreds.
+
+**Option A is a trap on this repo.** The runner is already on the box, so no SSH is needed at
+all — but `hpk369/ai-qa-agent` is public and forkable, and GitHub's own guidance is not to run
+self-hosted runners on public repos, because fork pull requests can execute code on them.
+Today `run-incident.yml` is `workflow_dispatch`-only, which a fork cannot trigger, so it would
+be safe. It is one future `pull_request`-triggered workflow with the wrong `runs-on:` label
+away from being a remote-code-execution path onto the host. There is a second problem too:
+F16 deliberately exhausts host memory, so the runner would need its own `OOMScoreAdjust` or it
+gets killed mid-run and fails the workflow spuriously.
+
+**Option B keeps the `/32` rule and never adds `0.0.0.0/0`** — the VM makes an outbound
+connection to the tailnet and the runner joins it as an ephemeral node, so there is nothing to
+open. Continue to §4a.
+
+Leave the egress rule alone in all three cases — the installer downloads Hadoop, Spark and
+Kafka, and Tailscale needs outbound UDP 41641 (falling back to DERP relays over 443).
+
+## 4a. Tailscale — the outbound-only path for CI **(Option B)**
+
+Do this after §5–§7, once the instance exists and `bankops` can log in. It is listed here so
+the network decision stays in one place.
+
+### On the VM
+
+```bash
+# Oracle Linux 9, aarch64 packages are published
+sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/oracle/9/tailscale.repo
+sudo dnf install -y tailscale
+sudo systemctl enable --now tailscaled
+
+# Tag the node so ACLs can target it, and disable key expiry (tagged nodes don't expire).
+# --accept-dns=false is important here -- see the warning below.
+sudo tailscale up --advertise-tags=tag:bankdemo --accept-dns=false
+```
+
+> ⚠️ **`--accept-dns=false` is not optional on this host.** Tailscale's MagicDNS adds the
+> tailnet as a DNS search domain, which would make the bare name `bankdemo` resolve to a
+> `100.x.y.z` tailnet address. HDFS, Kafka's `advertised.listeners`, and `fs.defaultFS` all
+> reference `bankdemo` and need the **private IP**. The `/etc/hosts` entry from §12 wins over
+> DNS under the default `nsswitch` order, so this is belt-and-braces — but the failure mode if
+> both protections are missing is DataNode registration breaking in a way that looks nothing
+> like a DNS problem.
+
+Protect it from F16, which deliberately drives the host into memory exhaustion. `tailscaled`
+is now an access path, so it needs the same treatment as `sshd`:
+
+```bash
+sudo mkdir -p /etc/systemd/system/tailscaled.service.d
+printf '[Service]\nOOMScoreAdjust=-900\n' | sudo tee /etc/systemd/system/tailscaled.service.d/oom.conf
+sudo systemctl daemon-reload && sudo systemctl restart tailscaled
+```
+
+`tailscaled` costs ~50 MB RSS, which comes out of the OS/page-cache headroom line in
+`../IMPLEMENTATION_GUIDE.md` §2.3. It does not threaten the budget, but record it in the
+Phase 3.5 measurements (§6.8) rather than letting it show up as unexplained drift.
+
+### On the tailnet
+
+**Where:** [login.tailscale.com](https://login.tailscale.com) → **Access controls**.
+
+Create the tags and allow CI to reach the VM on port 22 only:
+
+```jsonc
+{
+  "tagOwners": {
+    "tag:bankdemo": ["autogroup:admin"],
+    "tag:ci":       ["autogroup:admin"]
+  },
+  "acls": [
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:bankdemo:22"] },
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:bankdemo:22"] }
+  ]
+}
+```
+
+Then **Settings → OAuth clients → Generate OAuth client**, scope `auth_keys` write, tag
+`tag:ci`. Store the two values as repository secrets `TS_OAUTH_CLIENT_ID` and
+`TS_OAUTH_SECRET`. An OAuth client is preferable to a raw auth key because it doesn't expire
+on a 90-day clock.
+
+### Break-glass
+
+**Keep the `/32` ingress rule.** If Tailscale is your only path in and `tailscaled` fails to
+start after a kernel update, you are locked out of a box with no console access configured.
+The `/32` costs nothing and is your own normal path in anyway. OCI's serial console is the
+second fallback — worth enabling once under instance details → **Console connection** so you
+find out it works before you need it.
+
+### What this does not give you
+
+Tailscale makes the VM reachable **by machines you have authorised**. It does not, and is not
+meant to, let anyone else run the stack — see §14.
 
 ## 5. The instance
 
@@ -360,6 +464,40 @@ infra/bankdemo/scripts/tunnel.sh   # forwards 9870, 8088, 18080 over SSH
 Then B2 continues with installer stages 00–40, the stack build, and the **Phase 3.5 budget
 gate** (`../IMPLEMENTATION_GUIDE.md` §6.8) — which is where you find out whether §0's answer
 and §2.3's memory table actually agree with the hardware.
+
+## 14. Letting other people evaluate the project
+
+Worth separating from the network question above, because they get conflated easily.
+
+**Nobody outside the repo can trigger a run on your VM, by any of the three options in §4.**
+`workflow_dispatch` requires write access to the repository — a visitor to the demo site, or
+anyone who forks the repo, cannot dispatch it. Tailscale narrows reachability further still.
+
+That is the correct design, not a gap to close. `bankdemo run` executes as root via sudo, takes
+an exclusive `flock` (so a single stranger blocks every other run, including your cron), accepts
+`--seed` and `--faults` arguments, and runs on a free-tier box that holds your answer keys in
+`/var/lib/bankdemo/keys/`. Exposing that to the public internet would be a bad idea however it
+was authenticated.
+
+What reviewers can actually do, in increasing order of effort:
+
+| Effort | What they get | Status |
+|---|---|---|
+| None | The [GitHub Pages demo](https://hpk369.github.io/ai-qa-agent/) — client-side simulation of severity classification and the Slack Block Kit output | **Exists** |
+| ~2 min | `docker compose --profile lite up` — runs the real `agent/` triage code against the Postgres/Kafka mock. This is why the lite path is kept permanently (`/ROADMAP.md` §2) | **Exists** |
+| ~20 min | Download a **published sample bundle** and triage it themselves: read `ticket.json`, work the evidence, fill in `RCA_TEMPLATE.yaml`, then compare against the published postmortem | **Roadmap B6** |
+| ~1 hour | Provision their own Always Free VM and run this document plus `make deploy`. The installer is idempotent and the Phase 9 rebuild drill (`../IMPLEMENTATION_GUIDE.md` §12) exists precisely to prove a stranger can do this | **Roadmap B6** |
+
+The third row is the one worth building deliberately, and it is the closest thing to "anyone can
+run this stack": attach two or three redacted bundles to a GitHub Release, each paired with the
+written postmortem for that incident. A reviewer then gets the genuine artefact — real YARN
+container logs, real `dfsadmin` output, a real alert timeline — without needing any
+infrastructure, and can check their own triage against yours. It is also strictly better
+evidence than a screenshot, because they can grep it.
+
+Publishing bundles is safe by construction: §9.1's redaction strips credentials, and §10.2's
+salted fault selection means the embedded seed does not reveal the answer key. Both of those
+properties are load-bearing here — verify them before the first release rather than after.
 
 ---
 
