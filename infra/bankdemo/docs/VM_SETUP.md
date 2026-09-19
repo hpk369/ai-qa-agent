@@ -469,9 +469,14 @@ and §2.3's memory table actually agree with the hardware.
 
 Worth separating from the network question above, because they get conflated easily.
 
-**Nobody outside the repo can trigger a run on your VM, by any of the three options in §4.**
+**Nobody outside the repo can trigger a run on your VM through the options in §4.**
 `workflow_dispatch` requires write access to the repository — a visitor to the demo site, or
 anyone who forks the repo, cannot dispatch it. Tailscale narrows reachability further still.
+
+A visitor-facing trigger exists only as the optional broker in
+[`../../demo-broker/README.md`](../../demo-broker/README.md), and it does not change this: the
+VM still accepts no inbound connection. It polls the broker outbound, yields to every other
+caller on the box, accepts no visitor-supplied arguments, and is capped per IP and per day.
 
 That is the correct design, not a gap to close. `bankdemo run` executes as root via sudo, takes
 an exclusive `flock` (so a single stranger blocks every other run, including your cron), accepts

@@ -1226,6 +1226,30 @@ resolving to a preview file under 32 KB; the demo page renders a random entry an
 "different incident" control swaps it without a network round trip to anything but the repo's
 own origin; and no preview for a `--source cli` run ever appears.
 
+### 9.7 Visitor-triggered runs (optional, additive)
+
+`infra/demo-broker/` specifies an optional Cloudflare Worker that lets a demo-site visitor
+request a fresh run and watch it happen live, while the VM stays outbound-only. It is
+**strictly additive**: the demo feed in §9.6 must keep working with the broker deleted, and
+nothing in this guide may take a dependency on it.
+
+Three hooks on this side, all of which are no-ops when the broker is absent:
+
+1. **`bankdemo poll-requests`** — a subcommand driven by a 2-minute systemd timer. It tests
+   `/run/lock/bankdemo.lock` with `flock -n` and exits immediately if held, so a visitor run
+   can never contend with cron or with your own practice runs. It enforces its own daily cap
+   from `/var/lib/bankdemo/state/demo-runs-<date>` rather than trusting the broker's.
+2. **`--source demo`** — a demo-class run (§9.6): random seed, no other arguments accepted,
+   `BANKDEMO_DEMO_SALT`, publishes a preview with the answer.
+3. **`--progress-url URL`** — the orchestrator POSTs each `timeline.log` phase transition and
+   each `alerts.log` line as it is written, so the visitor watches the stack boot, break and
+   get collected in real time. **Every failure of this POST is logged and ignored.** A run must
+   never fail because a telemetry endpoint is unreachable.
+
+Add `BANKDEMO_POLL_TOKEN` and `BANKDEMO_SUBMIT_KEY` to the redaction pattern set in §9.1 when
+implementing this; they live in `secrets.env`, which is never collected, but the belt-and-braces
+rule there is to redact by pattern as well.
+
 ### 9.5 Bundle contract (what `agent/` consumes)
 
 The bundle is an interface, not just an output. `agent/evidence.py` and the triage agent read
@@ -1535,8 +1559,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 20 6,9,12,15,18,21 * * * root /opt/bankdemo/bin/bankdemo run --source cron >> /var/log/bankdemo/cron.log 2>&1
 ```
 
-Six runs a day produce fresh bundles and regular CPU, memory, and network activity. Be honest
-about the arithmetic: idle reclamation is judged on a **95th-percentile** metric over 7 days,
+Six runs a day produce fresh bundles and regular CPU, memory, and network activity. If the
+optional visitor-request broker (§9.7) is deployed, its cap of 8 visitor runs/day lands on top
+of these, for ~14 runs ≈ 3 hours of compute — which helps rather than hurts the reclamation
+arithmetic below. Be honest about that arithmetic: idle reclamation is judged on a **95th-percentile** metric over 7 days,
 so clearing it requires being busy for more than 5% of the week. Six 15-minute runs is 6.3% —
 just over the line, where three runs a day (3.1%) was not. This mitigates the risk; it does not
 eliminate it, and the idempotent installer remains the actual insurance. A logrotate rule for

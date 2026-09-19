@@ -259,14 +259,31 @@ not reveal the answer key. Demo runs additionally use a **separate salt** from t
 pool, so publishing demo answers — which is the demo's whole job — can never leak a run you
 intend to practise on.
 
+**B6.3 — Visitor-triggered runs (optional).** `infra/demo-broker/README.md` specifies a
+Cloudflare Worker that lets a visitor request a fresh run and **watch it happen live** — phase
+transitions and alerts streamed as they are written, so they see a real Hadoop stack boot,
+ingest, break and get collected. The VM stays outbound-only: it polls the broker, the broker
+never reaches it.
+
+Build this only after B6.1, and only for the live stream. Without the stream it is a slower way
+to get what the feed already delivers instantly; with it, the 13-minute run stops being a cost
+and becomes the most convincing thing the site can show. It is strictly additive — if the whole
+component is deleted, the demo loses a button and nothing else.
+
+It also adds Cloudflare as a dependency to a project that currently has only GitHub and OCI.
+That is a real cost, justified only because it is the one design that gives a public trigger
+while keeping the VM's inbound exposure at zero.
+
 **B6.2 — Make the rebuild drill a reviewer path, not just a test.** `infra/bankdemo/docs/VM_SETUP.md`
 plus `make deploy` should take a stranger with an Always Free account from nothing to a running
 stack. The Phase 9 drill already proves this; B6.2 is stating it in the README as a supported
 route and fixing whatever the drill exposes.
 
-Note what is deliberately *not* offered: no public trigger for runs on the project's own VM.
-`bankdemo run` is root-executed, lock-serialised, argument-taking, and sits on a box holding the
-answer keys — see `infra/bankdemo/docs/VM_SETUP.md` §14.
+A public trigger is offered only through B6.3's broker, and only under its constraints: no
+visitor-supplied arguments of any kind, Turnstile plus per-IP and global daily caps, and a VM
+poller that yields to every other caller on the box. Direct public access to `bankdemo run` is
+never offered — it is root-executed, lock-serialised, argument-taking, and sits on a box holding
+the answer keys. See `infra/bankdemo/docs/VM_SETUP.md` §14.
 
 ---
 
