@@ -53,7 +53,7 @@ Record:
 - Every environment variable read anywhere in the codebase
 - Every node name in `n8n_workflows/qa_agent_workflow.json` and the fields each reads
 - Existing test files and what they cover
-- Contents of `docs/` and how the GitHub Pages demo at `hpk369.github.io/ai-qa-agent` is generated
+- Contents of `docs/` and how the GitHub Pages demo at `demo.inkandinfra.com` is generated
 - Anything in the code that contradicts the README
 
 **Acceptance:** a reader can rename a field in the agent response and know every file that must change.

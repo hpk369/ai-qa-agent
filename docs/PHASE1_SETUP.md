@@ -81,7 +81,7 @@ cloudflared tunnel --url http://localhost:8001
 
 # stable hostname — needs a domain you control added to Cloudflare
 cloudflared tunnel create etl-triage-agent
-cloudflared tunnel route dns etl-triage-agent triage.yourdomain.com
+cloudflared tunnel route dns etl-triage-agent triage.inkandinfra.com
 cloudflared tunnel run --url http://localhost:8001 etl-triage-agent
 ```
 
@@ -92,7 +92,7 @@ Either way, note the resulting `https://...` hostname — that's your
 
 Now go back to your Slack app's **Interactivity & Shortcuts** page and
 set the **Request URL** to `{PUBLIC_WEBHOOK_BASE}/slack/action` (e.g.
-`https://triage.yourdomain.com/slack/action`) — Slack will send a test
+`https://triage.inkandinfra.com/slack/action`) — Slack will send a test
 ping the moment you save this, so the agent server needs to already be
 running (`python agent/agent.py`, or via `docker compose up`) before you
 save it.

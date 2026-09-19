@@ -1188,16 +1188,18 @@ run to finish, and nobody waits.
 | Artefact | Size | Where | Why |
 |---|---|---|---|
 | `demo_preview.json` | a few KB | committed to `docs/demo-feed/<run_id>.json` in the repo | Same origin as GitHub Pages, so the page `fetch()`es it with **no CORS configuration anywhere** |
-| Full bundle `.tar.gz` | < 60 MB | **Cloudflare R2**, served from `bundles.<your-domain>/<run_id>.tar.gz` | A plain download link needs no CORS, and no page should pull 60 MB to render a summary. R2's free tier is 10 GB with **zero egress fees**, so *every* run in the feed is downloadable rather than a curated few |
+| Full bundle `.tar.gz` | < 60 MB | **Cloudflare R2**, served from `bundles.inkandinfra.com/<run_id>.tar.gz` | A plain download link needs no CORS, and no page should pull 60 MB to render a summary. R2's free tier is 10 GB with **zero egress fees**, so *every* run in the feed is downloadable rather than a curated few |
 
 The preview carries a `bundle_url` field when the tarball has been uploaded and omits it
 otherwise. The page renders the download control only when the field is present, so the feed
 degrades cleanly if R2 is unavailable or not configured at all — the preview is what the page
 actually renders, and it never depends on the tarball existing.
 
-R2 retention: keep the newest 50 objects (~3 GB at the 60 MB target), enforced by a bucket
-lifecycle rule rather than by the VM. That is independent of the VM's own 20-bundle retention
-in §9.2 — the VM keeps fewer because its disk is the scarce resource.
+R2 retention: enforced by a bucket lifecycle rule rather than by the VM. R2 lifecycle rules
+expire objects by **age**, not by count, so the rule is a 10-day expiry — at cron's six runs a
+day that holds ~60 objects (~3.5 GB at the 60 MB target), comfortably inside the 10 GB free
+tier. That is independent of the VM's own 20-bundle retention in §9.2 — the VM keeps fewer
+because its disk is the scarce resource.
 
 `CLEANUP` writes the preview alongside the bundle into `/data/demo-feed/<run_id>.json` and
 rewrites `/data/demo-feed/index.json` with the newest 20 (run_id, business_date, started_at,

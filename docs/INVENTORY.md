@@ -95,7 +95,7 @@
 | `index.html` | Static-feeling front end for `app.py`'s `/run` SSE stream; also carries a fully offline fallback with the same verdict data inlined as JS objects (search `verdict:` blocks) so the page works with **no backend at all** when served as static GitHub Pages. |
 | `index_v2.html` | A visual redesign of the same demo (different CSS/theme), same functional shape. |
 
-No GitHub Actions workflow exists (`.github/` is absent). The live demo at `hpk369.github.io/ai-qa-agent` is therefore GitHub Pages serving the repo's `docs/` folder directly as static content — `index.html`'s inlined JS mock data is what actually renders on GitHub Pages, since Pages cannot run `docs/app.py`. `app.py` is only useful when someone runs it themselves (`python docs/app.py`, port 7860).
+No GitHub Actions workflow exists (`.github/` is absent). The live demo at `demo.inkandinfra.com` is therefore GitHub Pages serving the repo's `docs/` folder directly as static content (`docs/CNAME` sets the custom domain; the `hpk369.github.io/ai-qa-agent` address still resolves and redirects) — `index.html`'s inlined JS mock data is what actually renders on GitHub Pages, since Pages cannot run `docs/app.py`. `app.py` is only useful when someone runs it themselves (`python docs/app.py`, port 7860).
 
 ---
 
