@@ -491,7 +491,7 @@ What reviewers can actually do, in increasing order of effort:
 | None | The [GitHub Pages demo](https://hpk369.github.io/ai-qa-agent/) — client-side simulation of severity classification and the Slack Block Kit output | **Exists** |
 | ~2 min | `docker compose --profile lite up` — runs the real `agent/` triage code against the Postgres/Kafka mock. This is why the lite path is kept permanently (`/ROADMAP.md` §2) | **Exists** |
 | None | A **random recent real incident**, served instantly from the live demo feed — cron generates a fresh one six times a day, each with different randomly-selected faults (`../IMPLEMENTATION_GUIDE.md` §9.6) | **Roadmap B6.1** |
-| ~20 min | Download a **published sample bundle** and triage it themselves: read `ticket.json`, work the evidence, fill in `RCA_TEMPLATE.yaml`, then compare against the published postmortem | **Roadmap B6.1** |
+| ~20 min | Download the **full bundle** for any run in the feed and triage it themselves: read `ticket.json`, work the evidence, fill in `RCA_TEMPLATE.yaml`, then compare against the published postmortem | **Roadmap B6.1** |
 | ~1 hour | Provision their own Always Free VM and run this document plus `make deploy`. The installer is idempotent and the Phase 9 rebuild drill (`../IMPLEMENTATION_GUIDE.md` §12) exists precisely to prove a stranger can do this | **Roadmap B6** |
 
 Rows two and three are the ones worth building deliberately.

@@ -65,6 +65,22 @@ product demo.
 Nothing here changes the VM's network posture. `/32` on TCP 22 for you, Tailscale for CI, and
 three outbound HTTPS calls for this.
 
+## Hosting
+
+Mount the Worker on a **custom domain** from the Cloudflare zone —
+`api.<your-domain>/demo/*` — rather than on `*.workers.dev`. Two reasons, and the second is
+the one that matters for this project:
+
+- A stable hostname survives account and subdomain changes.
+- `workers.dev` is filtered on some corporate networks. This site exists to be opened by
+  hiring managers, plausibly from inside a bank, and a demo that silently fails to load there
+  is worse than no demo.
+
+Turnstile is configured against the same zone. The demo page stays on GitHub Pages — moving it
+to Cloudflare Pages would buy same-origin requests, but a Worker sets its own CORS headers, so
+that gain is small and not worth migrating a site that already works and is already linked from
+the README.
+
 ## Endpoints
 
 | Method | Path | Caller | Notes |
@@ -147,6 +163,25 @@ Both VM-held values go in the existing `secrets.env`, which §9.1 already refuse
 into any bundle. Add `BANKDEMO_POLL_TOKEN` and `BANKDEMO_SUBMIT_KEY` to the redaction pattern
 set while you are there.
 
+Note what is *not* in that table: no R2 access key, no GitHub token, no Cloudflare API token.
+The VM holds two scoped shared secrets for one Worker and nothing else. Keep it that way — it
+is the machine running Hadoop as root, and the one an attacker would most want a credential
+from.
+
+## Relationship to R2
+
+The broker does **not** own bundle storage. Tarballs go to R2 via the hourly harvest workflow
+in §9.6, which holds the R2 credentials as Actions secrets — that path belongs to Tier 1 and
+must keep working with this component deleted.
+
+One optional refinement once both exist: `/complete` can return a **presigned R2 PUT URL**, so
+a visitor-triggered run uploads its own tarball immediately rather than waiting up to an hour
+for the next harvest. This is worth doing only because the visitor just watched that specific
+run finish and will plausibly want its evidence now. It adds no credential to the VM — the
+presigned URL is minted by the Worker from its own R2 binding and is single-use — and it adds
+no dependency, since the upload is a plain HTTP PUT with `requests`. If it is not built, the
+harvest picks the tarball up on its normal cycle and nothing is broken.
+
 ## Storage
 
 Cloudflare KV is sufficient and definitely free-tier: the queue is a single JSON array key
@@ -188,10 +223,17 @@ loses a button and nothing else.
 
 - **This is spec, not code.** Nothing in `infra/bankdemo/` is built yet either; this depends on
   B3 at minimum and realistically lands after B6.1.
-- **Cloudflare is a new dependency** on a project that currently has none beyond GitHub and
-  OCI. That is a real cost. The justification is that it is the only design found that gives a
-  visitor-triggered run while keeping the VM's inbound exposure at zero — a self-hosted broker
-  on the VM would reintroduce exactly what `VM_SETUP.md` §4 removed.
+- **Cloudflare is a dependency** on a project that otherwise has only GitHub and OCI. It is a
+  smaller cost than it was — the account and domain already exist, and R2 is already carrying
+  bundle storage for Tier 1 (§9.6) — but it is still a third vendor in the critical path of the
+  demo. The justification is that this is the only design found that gives a visitor-triggered
+  run while keeping the VM's inbound exposure at zero; a broker hosted *on* the VM would
+  reintroduce exactly what `VM_SETUP.md` §4 removed.
+- **The VM access path is deliberately not Cloudflare.** Tailscale keeps the SSH/CI path
+  (`VM_SETUP.md` §4a) even though Cloudflare Tunnel could carry it, and the Hadoop web UIs stay
+  behind an SSH tunnel as `../bankdemo/CLAUDE.md` requires. Consolidating was considered and
+  declined: Tunnel plus Access would also make the UIs remotely viewable, which is a real demo
+  asset, but it changes a constraint marked "do not violate" and the existing path works.
 - **The live phase feed is the reason to build this at all.** Without it, Tier 2 is a slower
   way to get what Tier 1 already delivers instantly. If step 4 above proves impractical,
   reconsider whether to ship the button rather than shipping it without the stream.

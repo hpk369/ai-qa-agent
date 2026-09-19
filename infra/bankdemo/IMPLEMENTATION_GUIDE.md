@@ -1188,7 +1188,16 @@ run to finish, and nobody waits.
 | Artefact | Size | Where | Why |
 |---|---|---|---|
 | `demo_preview.json` | a few KB | committed to `docs/demo-feed/<run_id>.json` in the repo | Same origin as GitHub Pages, so the page `fetch()`es it with **no CORS configuration anywhere** |
-| Full bundle `.tar.gz` | < 60 MB | stays on the VM; a curated few attached to a GitHub Release (roadmap B6.1) | A plain download link needs no CORS, and no page should pull 60 MB to render a summary |
+| Full bundle `.tar.gz` | < 60 MB | **Cloudflare R2**, served from `bundles.<your-domain>/<run_id>.tar.gz` | A plain download link needs no CORS, and no page should pull 60 MB to render a summary. R2's free tier is 10 GB with **zero egress fees**, so *every* run in the feed is downloadable rather than a curated few |
+
+The preview carries a `bundle_url` field when the tarball has been uploaded and omits it
+otherwise. The page renders the download control only when the field is present, so the feed
+degrades cleanly if R2 is unavailable or not configured at all — the preview is what the page
+actually renders, and it never depends on the tarball existing.
+
+R2 retention: keep the newest 50 objects (~3 GB at the 60 MB target), enforced by a bucket
+lifecycle rule rather than by the VM. That is independent of the VM's own 20-bundle retention
+in §9.2 — the VM keeps fewer because its disk is the scarce resource.
 
 `CLEANUP` writes the preview alongside the bundle into `/data/demo-feed/<run_id>.json` and
 rewrites `/data/demo-feed/index.json` with the newest 20 (run_id, business_date, started_at,
@@ -1213,13 +1222,28 @@ Because demo runs publish `(seed → faults)` pairs, they use a **separate salt*
 demo answers then reveals nothing about any run you intend to practise on, and the two pools
 stay independent no matter how many demo bundles accumulate.
 
-**Publication keeps write credentials off the VM.** A scheduled workflow
-(`.github/workflows/publish-demo-feed.yml`, every 6 hours) joins the tailnet exactly as
-§11.3 does, rsyncs `/data/demo-feed/` into `docs/demo-feed/`, and commits only if something
-changed. The VM never holds a GitHub token, a deploy key, or push access — it only ever
-serves files to an authenticated puller. Guard the commit step with a check that
-`index.json` parses and every referenced preview exists, so a half-written feed can never be
-published.
+**Publication keeps every credential off the VM.** A scheduled workflow
+(`.github/workflows/publish-demo-feed.yml`, hourly) joins the tailnet exactly as §11.3 does
+and then:
+
+1. rsyncs `/data/demo-feed/` and pulls any new `.tar.gz` from `/data/runs/`;
+2. uploads the tarballs to R2 (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` as Actions secrets,
+   S3-compatible endpoint), writing `bundle_url` back into each preview;
+3. commits `docs/demo-feed/` only if something changed.
+
+The VM holds **no GitHub token, no deploy key, no push access, and no Cloudflare credential**.
+It serves files to an authenticated puller and nothing else. That property is worth protecting:
+the box runs Hadoop as root and is the one machine in this design an attacker would most want a
+credential from.
+
+Guard the commit step with a check that `index.json` parses and every referenced preview
+exists, so a half-written feed can never be published. Upload to R2 before writing
+`bundle_url`, never the other way round, so a failed upload leaves a preview with no download
+link rather than a broken one.
+
+Hourly rather than six-hourly because a visitor who has just watched a run finish (§9.7) should
+not wait most of a day for its tarball. The preview itself reaches them immediately by a
+different path, so this only affects the full download.
 
 **Acceptance:** after three cron runs, `docs/demo-feed/index.json` lists three entries, each
 resolving to a preview file under 32 KB; the demo page renders a random entry and the

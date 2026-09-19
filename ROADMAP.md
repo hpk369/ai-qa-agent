@@ -249,9 +249,13 @@ deliberately outbound-only.
 
 The design splits by size so nothing needs CORS: a few-KB `demo_preview.json` per run is
 committed into `docs/demo-feed/` (same origin as Pages, so `fetch()` just works), while the
-60 MB tarball stays on the VM with a curated few attached to a GitHub Release as plain download
-links. A scheduled workflow harvests previews over the tailnet, so the VM never holds a GitHub
-token or push access.
+60 MB tarball goes to **Cloudflare R2** and is served from `bundles.<domain>` as a plain
+download link. R2's free tier is 10 GB with zero egress, so every run in the feed is
+downloadable rather than a curated few.
+
+An hourly workflow harvests previews and tarballs over the tailnet and holds the R2 and GitHub
+credentials itself, so the VM ends up with **no GitHub token, no push access, and no Cloudflare
+credential** — worth protecting, since it is the box running Hadoop as root.
 
 Two properties are load-bearing and must be verified before the first publish, not after:
 §9.1's redaction strips credentials, and §10.2's salted selection means a published seed does
