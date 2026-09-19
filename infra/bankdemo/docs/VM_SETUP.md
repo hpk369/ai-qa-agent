@@ -156,18 +156,154 @@ just imply a restriction that isn't there, which is worse than not having the ru
 Do this after §5–§7, once the instance exists and `bankops` can log in. It is listed here so
 the network decision stays in one place.
 
-### On the VM
+**Do the steps in this order.** A tag has to exist in the policy file *before* any machine can
+advertise it — running `tailscale up --advertise-tags=tag:bankdemo` against a tailnet that has
+never heard of `tag:bankdemo` fails with `tag not permitted`, and the error does not say that
+the fix is in a web console you haven't opened yet.
+
+### Step 1 — create a tailnet
+
+**Where:** [login.tailscale.com](https://login.tailscale.com) → sign in with GitHub or Google.
+
+The free Personal plan covers this comfortably (100 devices, 3 users). Signing in creates your
+tailnet automatically; its name appears top-left, like `tail1a2b3.ts.net`.
+
+### Step 2 — define the two tags
+
+Tags are declared in the tailnet policy file, not in a tags UI. Until a tag is declared there,
+it does not exist.
+
+**Where:** admin console → **Access controls** (direct link:
+`login.tailscale.com/admin/acls/file`).
+
+You will see the default policy, which allows everything:
+
+```jsonc
+{
+	"acls": [
+		{"action": "accept", "src": ["*"], "dst": ["*:*"]},
+	],
+}
+```
+
+Replace it with the following. The editor is HuJSON, so comments and trailing commas are
+legal — keep the comments, they are the explanation for whoever reads this in a year:
+
+```jsonc
+{
+  // Who is allowed to apply each tag. autogroup:admin = any Owner/Admin
+  // of this tailnet, i.e. you. A tag must appear here before any machine
+  // or OAuth client can advertise it.
+  "tagOwners": {
+    "tag:bankdemo": ["autogroup:admin"],  // the VM itself
+    "tag:ci":       ["autogroup:admin"],  // ephemeral GitHub Actions runners
+  },
+
+  "acls": [
+    // CI runners reach the VM on SSH only -- not 9870, not 8088, not ICMP.
+    {"action": "accept", "src": ["tag:ci"], "dst": ["tag:bankdemo:22"]},
+
+    // You reach the VM on SSH. This rule is REQUIRED: once a machine is
+    // tagged it is owned by the tag rather than by you, so the default
+    // "members can reach their own devices" behaviour no longer applies.
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["tag:bankdemo:22"]},
+  ],
+
+  // Assertions the editor checks on save. If a future edit breaks either
+  // of these, the save is rejected instead of silently locking you out.
+  "tests": [
+    {"src": "tag:ci", "accept": ["tag:bankdemo:22"], "deny": ["tag:bankdemo:9870"]},
+  ],
+}
+```
+
+Click **Save**. If it refuses, the error names the line — usually a missing comma or a tag
+used in `acls` that is absent from `tagOwners`.
+
+Note what this policy does *not* allow: `tag:ci` cannot reach port 9870 or 8088, so a
+compromised CI token cannot browse your Hadoop UIs. The `tests` block is what keeps that true
+through later edits.
+
+### Step 3 — install on the VM and join the tailnet
+
+**Where you are:** a terminal on your own machine. You will need a second window (a browser)
+for 3.4.
+
+**3.1 — SSH into the VM.**
 
 ```bash
-# Oracle Linux 9, aarch64 packages are published
+ssh -i ~/.ssh/bankdemo opc@<public-ip>
+```
+
+Everything from here to 3.6 runs on the VM as `opc`, using `sudo`.
+
+**3.2 — Install the prerequisites this document needs.**
+
+The installer (`make deploy`) normally provides these, but it has not run yet, so install them
+by hand or the next command fails with `No such command: config-manager`:
+
+```bash
+sudo dnf install -y dnf-plugins-core jq nmap-ncat
+```
+
+| Package | Needed for |
+|---|---|
+| `dnf-plugins-core` | provides `dnf config-manager`, used in 3.3 |
+| `jq` | reading `tailscale status --json` in step 6 |
+| `nmap-ncat` | provides `nc`, used for the port checks in step 6 |
+
+Stage `10-os-base.sh` installs all three again later; `dnf` is idempotent, so this causes no
+conflict.
+
+**3.3 — Add the Tailscale repository and install.**
+
+```bash
 sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/oracle/9/tailscale.repo
 sudo dnf install -y tailscale
-sudo systemctl enable --now tailscaled
+```
 
-# Tag the node so ACLs can target it, and disable key expiry (tagged nodes don't expire).
-# --accept-dns=false is important here -- see the warning below.
+Confirm you got the aarch64 build:
+
+```bash
+rpm -q tailscale --qf '%{NAME} %{VERSION} %{ARCH}\n'
+# tailscale 1.xx.x aarch64
+```
+
+The repo file sets `gpgcheck=1`; `-y` accepts the key import. To eyeball the fingerprint first,
+drop the `-y` and compare against the one published on `pkgs.tailscale.com`.
+
+**3.4 — Start the daemon and join, tagged.**
+
+```bash
+sudo systemctl enable --now tailscaled
 sudo tailscale up --advertise-tags=tag:bankdemo --accept-dns=false
 ```
+
+The second command **prints a URL and then blocks**:
+
+```
+To authenticate, visit:
+
+	https://login.tailscale.com/a/a1b2c3d4e5f6
+
+```
+
+Open that URL in a browser signed in to the tailnet from step 1. You will see a **Connect
+device** page naming your tailnet. Click **Connect**. The terminal then prints `Success.` and
+returns. If you close the terminal before approving, just re-run the `tailscale up` command —
+it issues a fresh URL.
+
+If it instead exits with `tag not permitted`, `tag:bankdemo` is missing from `tagOwners` or
+your account is not an Owner/Admin of the tailnet. Go back to step 2.
+
+Flags, including two deliberately absent:
+
+| Flag | Why |
+|---|---|
+| `--advertise-tags=tag:bankdemo` | Applies the tag from step 2, **and** disables key expiry. Untagged nodes drop off the tailnet after ~6 months, which on a cron-driven box you would notice long after it happened |
+| `--accept-dns=false` | Non-negotiable here — see the warning below |
+| ~~`--ssh`~~ | **Not used.** Tailscale SSH would replace key auth with tailnet identity; keeping OpenSSH means the path still works if Tailscale is ever removed |
+| ~~`--advertise-routes`~~ | **Not used.** Nothing behind this host needs reaching |
 
 > ⚠️ **`--accept-dns=false` is not optional on this host.** Tailscale's MagicDNS adds the
 > tailnet as a DNS search domain, which would make the bare name `bankdemo` resolve to a
@@ -177,42 +313,258 @@ sudo tailscale up --advertise-tags=tag:bankdemo --accept-dns=false
 > both protections are missing is DataNode registration breaking in a way that looks nothing
 > like a DNS problem.
 
-Protect it from F16, which deliberately drives the host into memory exhaustion. `tailscaled`
-is now an access path, so it needs the same treatment as `sshd`:
+**3.5 — Check firewalld, and leave `tailscale0` alone.**
+
+```bash
+sudo firewall-cmd --get-active-zones
+```
+
+Expect `public` with your main interface. **`tailscale0` should not appear under a `trusted`
+zone**, and you should not add it — Tailscale's own docs often suggest
+`firewall-cmd --zone=trusted --add-interface=tailscale0`, which would let any tailnet device
+reach any port on this VM and move the whole enforcement boundary onto the Tailscale ACL.
+
+Nothing here needs it: the `public` zone already permits TCP 22, which is the only port
+anything on the tailnet should reach. Leaving `tailscale0` untrusted gives you a second layer
+behind the ACL for free.
+
+```bash
+sudo firewall-cmd --list-all
+# expect: services: ssh (dhcpv6-client alongside it is fine)
+```
+
+**3.6 — If you forgot the tag.** Easily done. Fix it in the console rather than reinstalling:
+
+1. [login.tailscale.com](https://login.tailscale.com) → **Machines**
+2. Find the `bankdemo` row → click the **⋯** menu on the right → **Edit ACL tags**
+3. Tick `tag:bankdemo` → **Save**
+4. Back on the VM: `sudo tailscale status --self --json | jq .Self.Tags`
+
+**3.7 — For the rebuild drill (optional, later).** §12's drill has to run unattended, but 3.4
+is interactive. When you get there, generate a reusable pre-approved key:
+
+1. Admin console → **Settings** → **Keys** → **Generate auth key**
+2. Turn on **Reusable** and **Pre-approved**; set **Tags** to `tag:bankdemo`
+3. Use it as `sudo tailscale up --authkey=tskey-auth-... --advertise-tags=tag:bankdemo --accept-dns=false`
+
+Auth keys expire after 90 days, so treat this as a rebuild-day artefact you regenerate. It does
+**not** go in `secrets.env` or anywhere in the repo.
+
+### Step 4 — protect `tailscaled` from F16
+
+**Where you are:** still SSH'd into the VM.
+
+F16 deliberately drives the host into memory exhaustion (`../IMPLEMENTATION_GUIDE.md` §10.3).
+`tailscaled` is now an access path and an unprotected ~50 MB process, which makes it a
+plausible OOM-killer target at exactly the moment you would want to log in and look.
+
+**4.1 — Create the drop-in.** Run this as one block:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/tailscaled.service.d
-printf '[Service]\nOOMScoreAdjust=-900\n' | sudo tee /etc/systemd/system/tailscaled.service.d/oom.conf
-sudo systemctl daemon-reload && sudo systemctl restart tailscaled
+sudo tee /etc/systemd/system/tailscaled.service.d/oom.conf >/dev/null <<'EOF'
+[Service]
+OOMScoreAdjust=-900
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart tailscaled
 ```
 
-`tailscaled` costs ~50 MB RSS, which comes out of the OS/page-cache headroom line in
-`../IMPLEMENTATION_GUIDE.md` §2.3. It does not threaten the budget, but record it in the
-Phase 3.5 measurements (§6.8) rather than letting it show up as unexplained drift.
+The restart drops the tailnet connection for a second or two. It does **not** require
+re-authentication — the node state in `/var/lib/tailscale/tailscaled.state` survives. Your SSH
+session is unaffected, because you are connected over the public IP, not the tailnet.
 
-### On the tailnet
+**4.2 — Verify it took effect**, both in systemd's view and on the running process:
 
-**Where:** [login.tailscale.com](https://login.tailscale.com) → **Access controls**.
+```bash
+systemctl show tailscaled -p OOMScoreAdjust
+# OOMScoreAdjust=-900
 
-Create the tags and allow CI to reach the VM on port 22 only:
+cat /proc/$(pidof tailscaled)/oom_score_adj
+# -900
+```
 
-```jsonc
+If the first prints `0`, the drop-in path or filename is wrong — it must be exactly
+`/etc/systemd/system/tailscaled.service.d/<anything>.conf`, and `daemon-reload` must follow.
+
+**Why −900 and not −1000.** The values form a deliberate ordering under memory pressure:
+
+| Process | `oom_score_adj` | Intent |
+|---|---|---|
+| `sshd` | −1000 | Effectively immune. The break-glass path survives anything |
+| orchestrator (`bankdemo run`) | −900 | Set by the process itself (§8.2) so a run can still revert and clean up |
+| `tailscaled` | −900 | Same tier — protected, but `sshd` still wins |
+| NameNode, ResourceManager, PostgreSQL | −500 | Protected enough that F16 hits a YARN container first (§2.3) |
+| YARN containers, `stress-ng` | default | The intended casualties |
+
+If `tailscaled` dies anyway you have not lost the box — the `/32` rule on TCP 22 is still
+there, which is why Break-glass below says to keep it.
+
+Its ~50 MB RSS comes out of the OS/page-cache headroom in §2.3. Record it in the Phase 3.5
+measurements (§6.8) rather than letting it appear later as unexplained drift.
+
+### Step 5 — an OAuth client for CI
+
+**Where you are:** a browser. Nothing in this step touches the VM.
+
+GitHub Actions joins the tailnet as a short-lived node on each run, authenticating with an
+OAuth client that mints a one-off ephemeral key per job.
+
+**5.1 — Generate the client.**
+
+1. Go to [login.tailscale.com](https://login.tailscale.com) → **Settings** (top nav)
+2. In the left sidebar under *Personal Settings* / *Tailnet Settings*, click **OAuth clients**
+3. Click **Generate OAuth client…**
+4. Fill the dialog:
+
+| Field | Value |
+|---|---|
+| Description | `github-actions-bankdemo` |
+| Scopes | expand **Keys** → tick **Auth Keys: Write**. Nothing else — it needs no device, DNS, or ACL scope |
+| Tags | select `tag:ci` |
+
+5. Click **Generate client**
+
+Two constraints the form enforces, both tracing back to step 2:
+
+- **A tag is mandatory.** The ephemeral runner node inherits it, and that inheritance is what
+  makes the `tag:ci` ACL rule apply to it.
+- **The tag must already be in `tagOwners`.** If `tag:ci` is absent from the policy file, it
+  will not appear in the dropdown.
+
+**5.2 — Copy both values now.** The dialog shows a **Client ID** and a **Client secret**, both
+beginning `tskey-client-`. **The secret is displayed once and cannot be retrieved again** — if
+you close the dialog without copying it, revoke the client and generate a new one.
+
+**5.3 — Store them as GitHub repository secrets.**
+
+1. Go to `https://github.com/hpk369/ai-qa-agent` → **Settings** (repo settings, not your
+   account's)
+2. Left sidebar → **Secrets and variables** → **Actions**
+3. Click **New repository secret**, then add each of these:
+
+| Name | Value |
+|---|---|
+| `TS_OAUTH_CLIENT_ID` | the Client ID |
+| `TS_OAUTH_SECRET` | the Client secret |
+
+4. Click **Add secret** after each
+
+**5.4 — Why an OAuth client and not a plain auth key.** Auth keys expire after 90 days maximum.
+A CI path that dies quarterly with an opaque `failed to authenticate` is worse than one that
+never dies, especially on a project you return to between job applications. OAuth client
+secrets do not expire; they are revoked explicitly.
+
+**5.5 — Ephemeral cleanup.** `tailscale/github-action` requests an ephemeral key, so each
+runner node deregisters when the job ends. Without it you would accumulate one dead machine per
+workflow run under **Machines**.
+
+**5.6 — To rotate later.** **Settings → OAuth clients → ⋯ → Revoke**, generate a replacement
+with the same scope and tag, and update both repository secrets. There is no overlap window, so
+do it when no workflow is mid-run.
+
+### Step 6 — verify
+
+**6.1 — On the VM.**
+
+```bash
+tailscale status --self --json | jq '{Online:.Self.Online, Tags:.Self.Tags, IP:.Self.TailscaleIPs[0]}'
+```
+
+```json
 {
-  "tagOwners": {
-    "tag:bankdemo": ["autogroup:admin"],
-    "tag:ci":       ["autogroup:admin"]
-  },
-  "acls": [
-    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:bankdemo:22"] },
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:bankdemo:22"] }
-  ]
+  "Online": true,
+  "Tags": ["tag:bankdemo"],
+  "IP": "100.x.y.z"
 }
 ```
 
-Then **Settings → OAuth clients → Generate OAuth client**, scope `auth_keys` write, tag
-`tag:ci`. Store the two values as repository secrets `TS_OAUTH_CLIENT_ID` and
-`TS_OAUTH_SECRET`. An OAuth client is preferable to a raw auth key because it doesn't expire
-on a 90-day clock.
+`Tags` is the line that matters — `null` there means the node is untagged; go to 3.6. **Write
+down the `IP`**, you need it in 6.3 and 6.4.
+
+```bash
+tailscale netcheck
+```
+
+Reports your connection path. A direct UDP path is normal. `relayed` means traffic is going
+over a DERP relay on 443 — it works, just with added latency, and usually indicates restrictive
+egress or NAT.
+
+```bash
+getent hosts bankdemo
+```
+
+**This must print the private IP (`10.0.x.x`), never `100.x.y.z`.** It is the check that
+silently breaks HDFS if it is wrong. Re-run it after every reboot as part of the §12 test.
+
+**6.2 — In the admin console.** **Machines** → the `bankdemo` row should show a
+`tag:bankdemo` badge and **Expiry disabled**. If it shows an expiry date, the node is untagged
+and will fall off the tailnet in about six months — go to 3.6.
+
+**6.3 — From your laptop.** Install Tailscale on it and sign in to the same tailnet first
+(`brew install tailscale` / the macOS or Windows app / your distro's package), then:
+
+```bash
+tailscale ping bankdemo
+# pong from bankdemo (100.x.y.z) via DERP(...) or direct
+
+ssh bankops@100.x.y.z          # the IP from 6.1
+```
+
+Then confirm the ACL really is SSH-only. **This must fail:**
+
+```bash
+nc -vz -w 5 100.x.y.z 9870
+# expect: connection timed out / refused
+```
+
+If that *connects*, either the ACL is wider than step 2 intended or `tailscale0` ended up in
+firewalld's trusted zone (3.5). It is the real test of the policy.
+
+**6.4 — Capture the workflow secrets.** `VM_HOST` for `../IMPLEMENTATION_GUIDE.md` §11.3 is the
+**tailnet** address, not the public IP — CI has no public SSH path.
+
+```bash
+# Run from a machine already on the tailnet.
+ssh-keyscan -t ed25519 100.x.y.z
+```
+
+Add three more repository secrets the same way as 5.3:
+
+| Name | Value |
+|---|---|
+| `VM_HOST` | the `100.x.y.z` address from 6.1 |
+| `VM_USER` | `bankops` |
+| `VM_KNOWN_HOSTS` | the full output line from `ssh-keyscan` |
+
+Use the `100.x.y.z` address rather than the MagicDNS name: both work, but the IP removes a DNS
+dependency from the CI path, and `VM_KNOWN_HOSTS` has to match whichever form the workflow
+connects to.
+
+**6.5 — Confirm the public path is unchanged.** Tailscale should have added no inbound
+exposure. From a network that is *not* your allowed `/32`:
+
+```bash
+nc -vz -w 5 <public-ip> 22
+# expect: timeout
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `dnf: No such command: config-manager` | `dnf-plugins-core` absent; the installer has not run yet | 3.2 |
+| `tailscale up` → `tag not permitted` | Tag missing from `tagOwners`, or you are not an Owner/Admin | Step 2 |
+| `tailscale up` appears to hang | Normal — it is waiting for you to open the printed URL | 3.4 |
+| Console shows the node owned by *you*, not the tag | `--advertise-tags` omitted | 3.6 |
+| SSH over the tailnet hangs; public SSH works | ACL lacks the `autogroup:member` rule — tagging transferred ownership away from you | Step 2 |
+| SSH over the tailnet refused, ACL looks right | firewalld | 3.5 |
+| `getent hosts bankdemo` returns `100.x.y.z` | `--accept-dns=false` missing, and `/etc/hosts` lacks the entry | 3.4 + §12 |
+| DataNodes won't register after adding Tailscale | Same root cause as above | As above |
+| `OOMScoreAdjust=0` after step 4 | Wrong drop-in path, or `daemon-reload` skipped | 4.2 |
+| CI fails at the Tailscale step | OAuth client untagged, wrong scope, or `tag:ci` absent from `tagOwners` | 5.1 |
+| CI joins but SSH times out | ACL `src` is not `tag:ci`, or `VM_HOST` is still the public IP | Step 2, 6.4 |
+| Node vanished months later | Key expiry — the node was untagged | 3.6, then re-auth |
 
 ### Break-glass
 
