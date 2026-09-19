@@ -1,6 +1,6 @@
 # ETL Production Support Triage Agent
 
-**[▶ Live Demo](https://hpk369.github.io/ai-qa-agent/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons — see [demo pages](#demo-pages) below for exactly what is and isn't live in it.
+**[▶ Live Demo](https://demo.inkandinfra.com/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons — see [demo pages](#demo-pages) below for exactly what is and isn't live in it.
 
 When a production ETL job breaks, the question that matters isn't "did the pipeline pass or fail" — it's "what's the severity, who's affected, and what do I do in the first fifteen minutes." This project is an AI-assisted triage agent, orchestrated via **n8n**, that watches a Big Data pipeline, classifies the severity of what it finds using a deterministic, config-driven ruleset, and opens a structured incident record rather than a pass/fail verdict. Claude (in tool-use mode) reports the evidence; a plain Python module decides how serious it is, so the same evidence always yields the same call. The result routes to the appropriate validation framework — Robot Framework to confirm restoration, pytest to isolate a root cause — the same way an on-call analyst would triage, escalate, and verify a fix.
 

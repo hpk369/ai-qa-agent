@@ -26,7 +26,7 @@ DNS names on the `inkandinfra.com` zone:
 |---|---|---|
 | `bundles.inkandinfra.com` | run bundle `.tar.gz` downloads from R2 | step 30 |
 | `api.inkandinfra.com` | demo-broker Worker, `/demo/*` | step 33 (B6.3, optional) |
-| `demo.inkandinfra.com` | GitHub Pages demo site | step 33 (optional) |
+| `demo.inkandinfra.com` | GitHub Pages demo site | step 33 |
 | `triage.inkandinfra.com` | Track A Slack webhook over Cloudflare Tunnel | `../../../docs/PHASE1_SETUP.md` §5 |
 
 ---
@@ -583,15 +583,19 @@ by object count.
 
 ## 33. Optional hostnames
 
-**Demo site on `demo.inkandinfra.com`** — do this only if you also update the demo links in
-`/README.md`:
+**Demo site on `demo.inkandinfra.com`.** `docs/CNAME` and the links in `/README.md` already
+point here; these steps make the hostname resolve:
 
-1. GitHub → repo **Settings → Pages → Custom domain** → enter `demo.inkandinfra.com` → **Save**.
-2. Cloudflare → **DNS → Records → Add record**: Type `CNAME`, Name `demo`, Target
+1. Cloudflare → **DNS → Records → Add record**: Type `CNAME`, Name `demo`, Target
    `hpk369.github.io`, Proxy status **DNS only**.
+2. GitHub → repo **Settings → Pages** → confirm **Custom domain** reads `demo.inkandinfra.com`
+   (`docs/CNAME` sets it) and that the DNS check passes.
 3. Wait for GitHub Pages to report the certificate as issued, then tick **Enforce HTTPS**.
 4. Only then set the Cloudflare record to **Proxied**, and set **SSL/TLS → Overview** to
    **Full (strict)**. Proxying before the certificate exists causes a redirect loop.
+
+Until step 1 is done the demo stays reachable at `hpk369.github.io/ai-qa-agent`, and the
+README link is dead. Do these four steps before merging, or revert the README link.
 
 **Broker on `api.inkandinfra.com`** — B6.3 only, after the Worker in
 [`../../demo-broker/README.md`](../../demo-broker/README.md) is deployed:
