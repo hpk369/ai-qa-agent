@@ -153,36 +153,7 @@ If creation fails with **Out of host capacity**, see [Troubleshooting](#troubles
 3. **☰ Menu → Compute → Instances** → click `bankdemo`.
 4. Left **Resources** panel → **Attached block volumes** → **Attach block volume**.
 
-| Field | Value |
-|---|---|
-| Volume | Select volume → `bankdemo-data` |
-| Attachment type | **Paravirtualized** |
-| Access | Read/write |
 
-5. Click **Attach**. Wait for **State: Attached**.
-
----
-
-# Part B — Local machine
-
-## 9. Generate the SSH keypair
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/bankdemo -C "bankdemo-oci"
-cat ~/.ssh/bankdemo.pub
-```
-
-Paste the printed key into the console fields in steps 6.6 and 7.2.
-
-## 10. Add an SSH host alias
-
-Append to `~/.ssh/config`:
-
-```
-Host bankdemo
-    HostName <public-ip>
-    User bankops
-    IdentityFile ~/.ssh/bankdemo
 ```
 
 ## 11. Log in as `opc`
