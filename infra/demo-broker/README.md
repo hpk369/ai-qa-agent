@@ -68,7 +68,7 @@ three outbound HTTPS calls for this.
 ## Hosting
 
 Mount the Worker on a **custom domain** from the Cloudflare zone —
-`api.<your-domain>/demo/*` — rather than on `*.workers.dev`. Two reasons, and the second is
+`api.inkandinfra.com/demo/*` — rather than on `*.workers.dev`. Two reasons, and the second is
 the one that matters for this project:
 
 - A stable hostname survives account and subdomain changes.

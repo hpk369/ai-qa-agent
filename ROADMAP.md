@@ -249,7 +249,7 @@ deliberately outbound-only.
 
 The design splits by size so nothing needs CORS: a few-KB `demo_preview.json` per run is
 committed into `docs/demo-feed/` (same origin as Pages, so `fetch()` just works), while the
-60 MB tarball goes to **Cloudflare R2** and is served from `bundles.<domain>` as a plain
+60 MB tarball goes to **Cloudflare R2** and is served from `bundles.inkandinfra.com` as a plain
 download link. R2's free tier is 10 GB with zero egress, so every run in the feed is
 downloadable rather than a curated few.
 

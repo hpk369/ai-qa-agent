@@ -3,17 +3,27 @@
 Manual provisioning steps for roadmap B2 / Phase 1 of
 [`../IMPLEMENTATION_GUIDE.md`](../IMPLEMENTATION_GUIDE.md) §4.2. Run the parts in order.
 
-| Part | Platform | Steps |
-|---|---|---|
-| A | OCI Console (browser) | 1–8 |
-| B | Local machine (terminal) | 9–11 |
-| C | VM shell (over SSH) | 12–16 |
-| D | Tailscale admin console (browser) | 17–19 |
-| E | GitHub (browser) | 20 |
-| F | Local machine (terminal) | 21–23 |
+| Part | Platform | Steps | When |
+|---|---|---|---|
+| A | OCI Console (browser) | 1–8 | now |
+| B | Local machine (terminal) | 9–11 | now |
+| C | VM shell (over SSH) | 12–16 | now |
+| D | Tailscale admin console (browser) | 17–19 | now |
+| E | GitHub (browser) | 20 | now |
+| F | Local machine (terminal) | 21–23 | now |
+| G | Cloudflare dashboard (browser) | 24–29 | before B6.1, not needed to deploy |
 
 Values used throughout: compartment `bankdemo`, instance name/hostname `bankdemo`,
 OS user `bankops`, data mount `/data`.
+
+DNS names on the `inkandinfra.com` zone:
+
+| Hostname | Serves | Configured in |
+|---|---|---|
+| `bundles.inkandinfra.com` | run bundle `.tar.gz` downloads from R2 | step 26 |
+| `api.inkandinfra.com` | demo-broker Worker, `/demo/*` | step 29 (B6.3, optional) |
+| `demo.inkandinfra.com` | GitHub Pages demo site | step 29 (optional) |
+| `triage.inkandinfra.com` | Track A Slack webhook over Cloudflare Tunnel | `../../../docs/PHASE1_SETUP.md` §5 |
 
 ---
 
@@ -375,6 +385,111 @@ Track B continues with installer stages 00–40 and the Phase 3.5 budget gate
 
 ---
 
+# Part G — Cloudflare dashboard
+
+Needed by B6.1 (the demo feed), not by `make deploy`. Sign in at
+[dash.cloudflare.com](https://dash.cloudflare.com).
+
+## 24. Confirm the zone
+
+1. On the dashboard home, confirm `inkandinfra.com` is listed under **Websites** with
+   **Status: Active**.
+2. Click `inkandinfra.com` → **DNS → Records** and keep this tab available for step 29.
+
+## 25. Create the R2 bucket
+
+1. Left sidebar → **R2 Object Storage**. If prompted, complete the one-time R2 signup (free tier,
+   card on file, no charge inside 10 GB).
+2. Click **Create bucket**.
+
+| Field | Value |
+|---|---|
+| Bucket name | `bankdemo-bundles` |
+| Location | **Automatic** |
+| Default storage class | **Standard** |
+
+3. Click **Create bucket**.
+
+## 26. Attach the public hostname
+
+1. Open the `bankdemo-bundles` bucket → **Settings** tab.
+2. Under **Public access → Custom domains**, click **Connect domain**.
+3. Enter `bundles.inkandinfra.com` → **Continue** → **Connect domain**.
+4. Wait for **Status: Active**. Cloudflare adds the CNAME to the zone automatically — do not add
+   one by hand.
+
+Leave **r2.dev subdomain** disabled.
+
+## 27. Set the retention rule
+
+1. Same **Settings** tab → **Object lifecycle rules** → **Add rule**.
+
+| Field | Value |
+|---|---|
+| Rule name | `expire-bundles` |
+| Apply to | All objects in the bucket |
+| Action | **Delete uploaded objects** |
+| Age | `10` days after upload |
+
+2. Click **Add rule**.
+
+At six cron runs a day this holds ~60 objects (~3.5 GB). R2 lifecycle rules expire by age, not
+by object count.
+
+## 28. Create the R2 API token
+
+1. **R2 Object Storage → API → Manage API tokens** → **Create API token**.
+
+| Field | Value |
+|---|---|
+| Token name | `bankdemo-feed-publisher` |
+| Permissions | **Object Read & Write** |
+| Specify bucket(s) | `bankdemo-bundles` only |
+| TTL | Forever |
+
+2. Click **Create API token**.
+3. Copy the **Access Key ID**, the **Secret Access Key** and the **S3 endpoint** now — the secret
+   is shown once.
+4. Go to `https://github.com/hpk369/ai-qa-agent` → **Settings → Secrets and variables → Actions**
+   → **New repository secret** and add:
+
+| Name | Value |
+|---|---|
+| `R2_ACCESS_KEY_ID` | Access Key ID from step 28.3 |
+| `R2_SECRET_ACCESS_KEY` | Secret Access Key from step 28.3 |
+| `R2_S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `R2_BUCKET` | `bankdemo-bundles` |
+
+## 29. Optional hostnames
+
+**Demo site on `demo.inkandinfra.com`** — do this only if you also update the demo links in
+`/README.md`:
+
+1. GitHub → repo **Settings → Pages → Custom domain** → enter `demo.inkandinfra.com` → **Save**.
+2. Cloudflare → **DNS → Records → Add record**: Type `CNAME`, Name `demo`, Target
+   `hpk369.github.io`, Proxy status **DNS only**.
+3. Wait for GitHub Pages to report the certificate as issued, then tick **Enforce HTTPS**.
+4. Only then set the Cloudflare record to **Proxied**, and set **SSL/TLS → Overview** to
+   **Full (strict)**. Proxying before the certificate exists causes a redirect loop.
+
+**Broker on `api.inkandinfra.com`** — B6.3 only, after the Worker in
+[`../../demo-broker/README.md`](../../demo-broker/README.md) is deployed:
+
+1. **Workers & Pages** → select the broker Worker → **Settings → Domains & Routes** → **Add →
+   Custom domain** → `api.inkandinfra.com` → **Add domain**.
+2. Left sidebar → **Turnstile** → **Add widget**.
+
+| Field | Value |
+|---|---|
+| Widget name | `bankdemo-demo-request` |
+| Hostnames | `demo.inkandinfra.com`, `hpk369.github.io` |
+| Widget mode | Managed |
+
+3. Copy the **Site Key** into the demo page and store the **Secret Key** as the Worker secret
+   `TURNSTILE_SECRET_KEY`.
+
+---
+
 # Troubleshooting
 
 **"Out of host capacity" in step 6.** Try in this order:
@@ -403,6 +518,8 @@ to prevent this. Re-run the stage if the file is missing.
 | Restricted sudoers rule, GitHub Actions run secrets | `../IMPLEMENTATION_GUIDE.md` §11.1, §11.3 (Phase 8) |
 | `fail2ban`, `dnf-automatic`, firewalld assertions | `../IMPLEMENTATION_GUIDE.md` §12 (Phase 9) |
 | Network design rationale and reviewer-access options | `../IMPLEMENTATION_GUIDE.md`, `../../demo-broker/README.md` |
+| Demo-feed publication workflow that consumes the R2 secrets | `../IMPLEMENTATION_GUIDE.md` §9.6 (B6.1) |
+| Cloudflare Tunnel for the Track A Slack webhook | `../../../docs/PHASE1_SETUP.md` §5 |
 
 Console labels drift between OCI UI revisions. If a menu path here does not match what you see,
 follow the console and correct this file.
