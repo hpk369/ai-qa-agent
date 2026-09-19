@@ -89,7 +89,7 @@ Internet Connectivity**.
 The wizard creates the internet gateway, route table and default security list. Accept its
 defaults — the only thing to change is the ingress rule, next.
 
-## 4. Security list — one ingress rule, TCP 22
+## 4. Security list — exactly one ingress rule
 
 This is the one network control that matters. `../CLAUDE.md` makes it a hard constraint: only
 TCP 22 is reachable from outside, and every web UI (NameNode 9870, ResourceManager 8088,
@@ -97,51 +97,61 @@ Spark History 18080) is reached by SSH tunnel instead.
 
 **Where:** your VCN → **Security Lists** → **Default Security List** → **Ingress Rules**.
 
-Delete anything that isn't SSH. What remains is **one** rule — this is an either/or, not a
-pair, because OCI security list rules are purely additive allow-rules with no deny and no
-precedence. `0.0.0.0/0` is a superset of your `/32`, so listing both means the `/32` does
-nothing except imply a restriction that isn't there:
+Delete every ingress rule except this one:
 
-| Source CIDR | Protocol | Dest. port | When |
+| Source CIDR | Protocol | Dest. port | Why |
 |---|---|---|---|
-| `<your IP>/32` | TCP | 22 | **Default.** Find yours with `curl -s ifconfig.me` |
-| `0.0.0.0/0` | TCP | 22 | Only if you run the GitHub Actions trigger over the public internet — see below |
+| `<your IP>/32` | TCP | 22 | Your SSH, every web-UI tunnel, and break-glass access. Find yours with `curl -s ifconfig.me` |
 
-### If you want the GitHub Actions trigger
+**That is the whole list.** Not "at minimum" — exactly. Every other thing that talks to this
+host dials *out* from it:
 
-The workflow in `../IMPLEMENTATION_GUIDE.md` §11.3 has to reach the VM from a GitHub-hosted
-runner. Three ways, and they are not equally good:
+| Capability | How it reaches the VM | Ingress needed |
+|---|---|---|
+| GitHub Actions run trigger (§11.3) | Tailscale — the VM joins the tailnet outbound | none |
+| Hourly demo-feed harvest (§9.6) | Tailscale, same path | none |
+| Demo broker polling (§9.7, optional) | VM → Worker over HTTPS, every 2 min | none |
+| Live progress streaming (optional) | VM → Worker over HTTPS | none |
+| R2 tarball upload | performed by the Actions runner, never by the VM | none |
+| Installer downloads | outbound to Apache, Maven, dnf repos | none |
 
-| | Approach | Inbound exposure | Verdict |
-|---|---|---|---|
-| **A** | Self-hosted runner on the VM | None | **Avoid.** See below |
-| **B** | Tailscale, outbound-only overlay | None | **Recommended** — §4a |
-| **C** | Open `0.0.0.0/0`, compensate | SSH open to the internet | Works, weakest |
+If you find yourself adding a second ingress rule, something has gone wrong with the design
+rather than with the firewall — come back to this table first.
 
-**Option C** is defensible for a lab box — key-only auth (§8), `fail2ban` with a 1-hour ban
-(§12), and a CI key restricted with `no-port-forwarding,no-agent-forwarding,no-X11-forwarding`
-in `authorized_keys`. If you take it, take the compensations too. Pinning GitHub's ranges
-instead is not practical: they are published at `api.github.com/meta` under `actions`, but
-there are thousands of CIDRs that rotate, and OCI caps ingress rules per security list in the
-low hundreds.
+### Egress
 
-**Option A is a trap on this repo.** The runner is already on the box, so no SSH is needed at
-all — but `hpk369/ai-qa-agent` is public and forkable, and GitHub's own guidance is not to run
-self-hosted runners on public repos, because fork pull requests can execute code on them.
-Today `run-incident.yml` is `workflow_dispatch`-only, which a fork cannot trigger, so it would
-be safe. It is one future `pull_request`-triggered workflow with the wrong `runs-on:` label
-away from being a remote-code-execution path onto the host. There is a second problem too:
-F16 deliberately exhausts host memory, so the runner would need its own `OOMScoreAdjust` or it
-gets killed mid-run and fails the workflow spuriously.
+Leave the default allow-all egress rule alone. It carries: dnf repos (OL9, EPEL, Tailscale),
+the Hadoop/Spark/Kafka tarballs and the PostgreSQL JDBC driver, Tailscale (UDP 41641, falling
+back to DERP relays over TCP 443), and — only if the optional broker is deployed — HTTPS to the
+Cloudflare Worker.
 
-**Option B keeps the `/32` rule and never adds `0.0.0.0/0`** — the VM makes an outbound
-connection to the tailnet and the runner joins it as an ephemeral node, so there is nothing to
-open. Continue to §4a.
+### Verify
 
-Leave the egress rule alone in all three cases — the installer downloads Hadoop, Spark and
-Kafka, and Tailscale needs outbound UDP 41641 (falling back to DERP relays over 443).
+```bash
+# Expect exactly one ingress rule, TCP 22, your address.
+oci network security-list get --security-list-id <ocid> \
+  --query 'data."ingress-security-rules"[].{src:source,proto:protocol,port:"tcp-options".destination-port-range.min}'
 
-## 4a. Tailscale — the outbound-only path for CI **(Option B)**
+# From anywhere that is not your IP, this must hang and time out rather than connect:
+nc -vz -w 5 <public-ip> 22
+```
+
+### Why not the alternatives
+
+Recorded so they don't get quietly revisited:
+
+| | Approach | Verdict |
+|---|---|---|
+| **A** | Self-hosted GitHub runner on the VM | **Rejected.** `hpk369/ai-qa-agent` is public and forkable, and GitHub advises against self-hosted runners on public repos because fork pull requests can execute on them. `run-incident.yml` is `workflow_dispatch`-only so it would be safe *today*, but it is one future `pull_request`-triggered workflow with the wrong `runs-on:` label away from being a remote-code-execution path onto the host. F16 would also OOM-kill the runner mid-run |
+| **B** | Tailscale, outbound-only | **Chosen** — §4a |
+| **C** | Open `0.0.0.0/0` on 22 and compensate | **Rejected.** It was the only reason `0.0.0.0/0` ever appeared here. Pinning GitHub's ranges instead is impractical: they are published at `api.github.com/meta` under `actions`, but there are thousands of CIDRs that rotate and OCI caps ingress rules per security list in the low hundreds |
+
+One thing worth understanding about OCI specifically, because it trips people up: security list
+rules are **purely additive allow-rules** — no deny, no precedence, no "more specific wins".
+`0.0.0.0/0` is a superset of any `/32`, so listing both would not restrict anything. It would
+just imply a restriction that isn't there, which is worse than not having the rule at all.
+
+## 4a. Tailscale — the outbound-only path for CI
 
 Do this after §5–§7, once the instance exists and `bankops` can log in. It is listed here so
 the network decision stays in one place.
