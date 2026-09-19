@@ -156,18 +156,95 @@ just imply a restriction that isn't there, which is worse than not having the ru
 Do this after §5–§7, once the instance exists and `bankops` can log in. It is listed here so
 the network decision stays in one place.
 
-### On the VM
+**Do the steps in this order.** A tag has to exist in the policy file *before* any machine can
+advertise it — running `tailscale up --advertise-tags=tag:bankdemo` against a tailnet that has
+never heard of `tag:bankdemo` fails with `tag not permitted`, and the error does not say that
+the fix is in a web console you haven't opened yet.
+
+### Step 1 — create a tailnet
+
+**Where:** [login.tailscale.com](https://login.tailscale.com) → sign in with GitHub or Google.
+
+The free Personal plan covers this comfortably (100 devices, 3 users). Signing in creates your
+tailnet automatically; its name appears top-left, like `tail1a2b3.ts.net`.
+
+### Step 2 — define the two tags
+
+Tags are declared in the tailnet policy file, not in a tags UI. Until a tag is declared there,
+it does not exist.
+
+**Where:** admin console → **Access controls** (direct link:
+`login.tailscale.com/admin/acls/file`).
+
+You will see the default policy, which allows everything:
+
+```jsonc
+{
+	"acls": [
+		{"action": "accept", "src": ["*"], "dst": ["*:*"]},
+	],
+}
+```
+
+Replace it with the following. The editor is HuJSON, so comments and trailing commas are
+legal — keep the comments, they are the explanation for whoever reads this in a year:
+
+```jsonc
+{
+  // Who is allowed to apply each tag. autogroup:admin = any Owner/Admin
+  // of this tailnet, i.e. you. A tag must appear here before any machine
+  // or OAuth client can advertise it.
+  "tagOwners": {
+    "tag:bankdemo": ["autogroup:admin"],  // the VM itself
+    "tag:ci":       ["autogroup:admin"],  // ephemeral GitHub Actions runners
+  },
+
+  "acls": [
+    // CI runners reach the VM on SSH only -- not 9870, not 8088, not ICMP.
+    {"action": "accept", "src": ["tag:ci"], "dst": ["tag:bankdemo:22"]},
+
+    // You reach the VM on SSH. This rule is REQUIRED: once a machine is
+    // tagged it is owned by the tag rather than by you, so the default
+    // "members can reach their own devices" behaviour no longer applies.
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["tag:bankdemo:22"]},
+  ],
+
+  // Assertions the editor checks on save. If a future edit breaks either
+  // of these, the save is rejected instead of silently locking you out.
+  "tests": [
+    {"src": "tag:ci", "accept": ["tag:bankdemo:22"], "deny": ["tag:bankdemo:9870"]},
+  ],
+}
+```
+
+Click **Save**. If it refuses, the error names the line — usually a missing comma or a tag
+used in `acls` that is absent from `tagOwners`.
+
+Note what this policy does *not* allow: `tag:ci` cannot reach port 9870 or 8088, so a
+compromised CI token cannot browse your Hadoop UIs. The `tests` block is what keeps that true
+through later edits.
+
+### Step 3 — install on the VM and advertise the tag
+
+Only now will the `--advertise-tags` flag succeed.
 
 ```bash
-# Oracle Linux 9, aarch64 packages are published
+# Oracle Linux 9; aarch64 packages are published
 sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/oracle/9/tailscale.repo
 sudo dnf install -y tailscale
 sudo systemctl enable --now tailscaled
 
-# Tag the node so ACLs can target it, and disable key expiry (tagged nodes don't expire).
-# --accept-dns=false is important here -- see the warning below.
 sudo tailscale up --advertise-tags=tag:bankdemo --accept-dns=false
 ```
+
+It prints a URL. Open it in a browser signed in as the same account, approve the machine, and
+`tailscale up` returns. Two things are now true that matter later:
+
+- **The node has no key expiry.** Tagged devices don't expire; untagged ones drop off the
+  tailnet after ~6 months. On a box you interact with mostly through cron, that silent
+  expiry is exactly the failure you don't want.
+- **The node is owned by `tag:bankdemo`, not by you** — which is why the second ACL rule in
+  step 2 exists.
 
 > ⚠️ **`--accept-dns=false` is not optional on this host.** Tailscale's MagicDNS adds the
 > tailnet as a DNS search domain, which would make the bare name `bankdemo` resolve to a
@@ -177,8 +254,14 @@ sudo tailscale up --advertise-tags=tag:bankdemo --accept-dns=false
 > both protections are missing is DataNode registration breaking in a way that looks nothing
 > like a DNS problem.
 
-Protect it from F16, which deliberately drives the host into memory exhaustion. `tailscaled`
-is now an access path, so it needs the same treatment as `sshd`:
+If you forgot the tag and the node joined untagged, fix it in the console rather than
+reinstalling: **Machines** → the `bankdemo` row → **⋯** → **Edit ACL tags** → check
+`tag:bankdemo`.
+
+### Step 4 — protect `tailscaled` from F16
+
+F16 deliberately drives the host into memory exhaustion. `tailscaled` is now an access path,
+so it needs the same treatment as `sshd`:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/tailscaled.service.d
@@ -190,29 +273,54 @@ sudo systemctl daemon-reload && sudo systemctl restart tailscaled
 `../IMPLEMENTATION_GUIDE.md` §2.3. It does not threaten the budget, but record it in the
 Phase 3.5 measurements (§6.8) rather than letting it show up as unexplained drift.
 
-### On the tailnet
+### Step 5 — an OAuth client for CI
 
-**Where:** [login.tailscale.com](https://login.tailscale.com) → **Access controls**.
+GitHub Actions needs to join the tailnet as an ephemeral node on each run.
 
-Create the tags and allow CI to reach the VM on port 22 only:
+**Where:** admin console → **Settings** → **OAuth clients** → **Generate OAuth client**.
 
-```jsonc
-{
-  "tagOwners": {
-    "tag:bankdemo": ["autogroup:admin"],
-    "tag:ci":       ["autogroup:admin"]
-  },
-  "acls": [
-    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:bankdemo:22"] },
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:bankdemo:22"] }
-  ]
-}
+| Field | Value |
+|---|---|
+| Description | `github-actions-bankdemo` |
+| Scopes | **Auth Keys** → *Write* |
+| Tags | `tag:ci` |
+
+The tag is mandatory: an OAuth client must carry one, and it is what the ephemeral runner node
+inherits — which is what makes the `tag:ci` ACL rule apply to it. It must already be in
+`tagOwners` from step 2, or the form rejects it.
+
+Copy both values immediately; the secret is shown once. Store them as **repository** secrets:
+
+```
+TS_OAUTH_CLIENT_ID      = tskey-client-...
+TS_OAUTH_SECRET         = tskey-client-...-...
 ```
 
-Then **Settings → OAuth clients → Generate OAuth client**, scope `auth_keys` write, tag
-`tag:ci`. Store the two values as repository secrets `TS_OAUTH_CLIENT_ID` and
-`TS_OAUTH_SECRET`. An OAuth client is preferable to a raw auth key because it doesn't expire
-on a 90-day clock.
+An OAuth client rather than a plain auth key because auth keys expire on a 90-day clock, and a
+CI path that dies quarterly with an opaque error is worse than one that never dies.
+
+### Step 6 — verify
+
+```bash
+# On the VM: Online, and tagged.
+tailscale status --self --json | jq '{Online:.Self.Online, Tags:.Self.Tags, IP:.Self.TailscaleIPs[0]}'
+# expect: Tags: ["tag:bankdemo"]
+
+# Confirm DNS was NOT hijacked -- this must be the PRIVATE IP, not 100.x.y.z
+getent hosts bankdemo
+
+# From your laptop, once it is also on the tailnet:
+tailscale ping bankdemo
+ssh bankops@100.x.y.z        # the tailnet IP from the first command
+```
+
+Record the tailnet IP (or its MagicDNS name) — that is `VM_HOST` for the workflow secrets in
+`../IMPLEMENTATION_GUIDE.md` §11.3, **not** the public IP. Generate `VM_KNOWN_HOSTS` from a
+machine already on the tailnet:
+
+```bash
+ssh-keyscan -t ed25519 100.x.y.z
+```
 
 ### Break-glass
 
