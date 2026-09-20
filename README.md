@@ -226,7 +226,7 @@ Neither call needs a frontier model — they are a short paragraph and a yes/no.
 |---|---|---|
 | **Ollama** (or llama.cpp, LM Studio, vLLM) on your own machine | free | `ollama serve && ollama pull llama3.2` — auto-detected on `localhost:11434`, nothing to configure |
 | **Groq**, **OpenRouter**, **Together**, **Fireworks**, **DeepSeek**, **Gemini** (OpenAI-compatible endpoint) | free tiers available | set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` |
-| **Claude API** | paid — no free model; Haiku 4.5 is the cheapest at $1/$5 per million tokens | set `ANTHROPIC_API_KEY` |
+| **Claude API** | paid — no free model; Haiku 4.5 is cheapest at $1/$5 per million tokens, ~$0.004 an incident | set `ANTHROPIC_API_KEY`, and `AGENT_MODEL=claude-haiku-4-5` if you are watching the bill |
 | **Nothing** | free | deterministic fallbacks, and the output says so |
 
 ```bash
@@ -241,14 +241,27 @@ export LLM_API_KEY=gsk_...
 
 # Claude
 export ANTHROPIC_API_KEY=sk-ant-...
-export AGENT_MODEL=claude-opus-5
+export AGENT_MODEL=claude-haiku-4-5   # or claude-opus-5; see the cost table below
 
 LLM_PROVIDER=off python scripts/stream.py      # force the deterministic path
 ```
 
 `LLM_PROVIDER=auto` (the default) takes the first of: a configured `LLM_BASE_URL`, an `ANTHROPIC_API_KEY`, a local Ollama that answers. Pin it with `anthropic`, `openai`, `ollama` or `off`.
 
-**Worth knowing before you pick.** This workload is about 1,700 input and 280 output tokens per incident — on Haiku 4.5 that is roughly a third of a cent, so the case for a free model here is zero setup cost and no account, not the bill.
+### What it costs
+
+One incident is one narration call plus a judge call per batch of Slack replies — measured at about **2,700 input and 290 output tokens**, most of it the 40 log lines of context (`MAX_CONTEXT_LINES` in `agent/llm.py`).
+
+| Model | per incident | incidents per $1 | an 8-hour stream at default pacing |
+|---|---|---|---|
+| Haiku 4.5 | $0.004 | ~240 | ~$4 |
+| Sonnet 5 | $0.018 | ~56 | ~$17 |
+| Opus 5 | $0.057 | ~18 | ~$54 |
+| Local Ollama, or a free hosted tier | $0 | — | $0 |
+
+Sonnet 5 and Opus 5 think before answering and thinking bills as output, which is why they cost 4-14× Haiku on a workload this small rather than 2-5×.
+
+Two things keep the bill flat: the test suite never calls a model (it runs the fallbacks), and a blocked stream only calls the judge when a *new* reply arrives — waiting costs nothing. The thing that is not flat is a stream left running: at the default 15-45s gap that is roughly 120 incidents an hour.
 
 **Structured output is negotiated, not assumed.** The OpenAI-compatible adapter asks for a JSON schema first; when an endpoint rejects that (many local servers do) it retries in plain JSON mode with the schema inlined in the prompt, strips the code fences and chat that small models wrap answers in, and validates against the schema itself. Anything that still doesn't validate counts as a failed call — never a half-parsed object.
 
