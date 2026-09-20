@@ -226,7 +226,7 @@ Neither call needs a frontier model — they are a short paragraph and a yes/no.
 |---|---|---|
 | **Ollama** (or llama.cpp, LM Studio, vLLM) on your own machine | free | `ollama serve && ollama pull llama3.2` — auto-detected on `localhost:11434`, nothing to configure |
 | **Groq**, **OpenRouter**, **Together**, **Fireworks**, **DeepSeek**, **Gemini** (OpenAI-compatible endpoint) | free tiers available | set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` |
-| **Claude API** | paid — no free model; Haiku 4.5 is cheapest at $1/$5 per million tokens, ~$0.004 an incident | set `ANTHROPIC_API_KEY`, and `AGENT_MODEL=claude-haiku-4-5` if you are watching the bill |
+| **Claude API** | paid — no free model; the default here is Haiku 4.5 at ~$0.004 an incident | set `ANTHROPIC_API_KEY` |
 | **Nothing** | free | deterministic fallbacks, and the output says so |
 
 ```bash
@@ -239,9 +239,9 @@ export LLM_BASE_URL=https://api.groq.com/openai/v1
 export LLM_MODEL=llama-3.3-70b-versatile
 export LLM_API_KEY=gsk_...
 
-# Claude
+# Claude — defaults to Haiku 4.5, the cheapest current model
 export ANTHROPIC_API_KEY=sk-ant-...
-export AGENT_MODEL=claude-haiku-4-5   # or claude-opus-5; see the cost table below
+export AGENT_MODEL=claude-opus-5      # only if you want to pay for more; see below
 
 LLM_PROVIDER=off python scripts/stream.py      # force the deterministic path
 ```
@@ -254,12 +254,12 @@ One incident is one narration call plus a judge call per batch of Slack replies 
 
 | Model | per incident | incidents per $1 | an 8-hour stream at default pacing |
 |---|---|---|---|
-| Haiku 4.5 | $0.004 | ~240 | ~$4 |
+| **Haiku 4.5** (the default) | $0.004 | ~240 | ~$4 |
 | Sonnet 5 | $0.018 | ~56 | ~$17 |
 | Opus 5 | $0.057 | ~18 | ~$54 |
 | Local Ollama, or a free hosted tier | $0 | — | $0 |
 
-Sonnet 5 and Opus 5 think before answering and thinking bills as output, which is why they cost 4-14× Haiku on a workload this small rather than 2-5×.
+Haiku 4.5 is the default because this workload is a short paragraph and a yes/no. Sonnet 5 and Opus 5 think before answering and thinking bills as output, which is why they cost 4-14× Haiku here rather than the 2-5× their headline prices suggest. (Haiku 4.5 and Sonnet 4.5 also reject `output_config.effort`, so the adapter omits it for them.)
 
 Two things keep the bill flat: the test suite never calls a model (it runs the fallbacks), and a blocked stream only calls the judge when a *new* reply arrives — waiting costs nothing. The thing that is not flat is a stream left running: at the default 15-45s gap that is roughly 120 incidents an hour.
 

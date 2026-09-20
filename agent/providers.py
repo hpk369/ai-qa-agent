@@ -52,6 +52,11 @@ OLLAMA_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 _ANTHROPIC_EFFORT = {"low": "low", "medium": "medium", "high": "high"}
 _OPENAI_MAX_TOKENS = {"low": 700, "medium": 1200, "high": 2000}
 
+# output_config.effort is not accepted by every Claude model — Haiku 4.5 and
+# Sonnet 4.5 reject it with a 400. Sending it to them would fail every call,
+# so it is only included for the families that take it.
+_NO_EFFORT_SUPPORT = ("haiku", "sonnet-4-5", "sonnet-3")
+
 
 class ProviderError(RuntimeError):
     """A call failed. agent/llm.py turns this into its fallback."""
@@ -69,12 +74,21 @@ class Provider(Protocol):
 # ---------- Claude ----------
 
 class AnthropicProvider:
-    """The Claude API, through the official SDK."""
+    """The Claude API, through the official SDK.
+
+    Defaults to Haiku 4.5: this workload is a short paragraph and a yes/no,
+    and Haiku is the cheapest current model at $1/$5 per million tokens —
+    about $0.004 an incident. Set AGENT_MODEL to move up."""
+
+    DEFAULT_MODEL = "claude-haiku-4-5"
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         self.name = "anthropic"
-        self.model = model or os.getenv("AGENT_MODEL", "claude-opus-5")
+        self.model = model or os.getenv("AGENT_MODEL", self.DEFAULT_MODEL)
         self._api_key = api_key
+
+    def supports_effort(self) -> bool:
+        return not any(family in self.model for family in _NO_EFFORT_SUPPORT)
 
     @staticmethod
     def configured() -> bool:
@@ -91,14 +105,28 @@ class AnthropicProvider:
 
     def complete_json(self, system: str, prompt: str, schema: type[BaseModel],
                       effort: str) -> BaseModel:
-        response = self._client().messages.parse(
-            model=self.model,
-            max_tokens=2000,
-            system=system,
-            output_config={"effort": _ANTHROPIC_EFFORT.get(effort, "medium")},
-            messages=[{"role": "user", "content": prompt}],
-            output_format=schema,
-        )
+        request = {
+            "model": self.model,
+            "max_tokens": 2000,
+            "system": system,
+            "messages": [{"role": "user", "content": prompt}],
+            "output_format": schema,
+        }
+        if self.supports_effort():
+            request["output_config"] = {"effort": _ANTHROPIC_EFFORT.get(effort, "medium")}
+
+        try:
+            response = self._client().messages.parse(**request)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # Model naming drifts; if a model turns out not to take effort
+            # after all, drop it and try once more rather than failing the
+            # call over a parameter this workload does not need.
+            if "effort" in str(exc) and "output_config" in request:
+                request.pop("output_config")
+                response = self._client().messages.parse(**request)
+            else:
+                raise ProviderError(str(exc)) from exc
+
         if getattr(response, "stop_reason", None) == "refusal":
             raise ProviderError(f"model declined: {getattr(response, 'stop_details', None)}")
         return response.parsed_output

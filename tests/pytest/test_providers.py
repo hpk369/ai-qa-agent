@@ -199,20 +199,31 @@ class FakeAnthropicResponse:
         self.stop_details = {"category": "cyber"}
 
 
-def test_the_anthropic_adapter_sends_the_documented_request(monkeypatch):
-    captured = {}
+def _fake_anthropic(monkeypatch, provider, captured, fail_on_effort=False):
+    calls = []
 
     class FakeMessages:
         def parse(self, **kwargs):
+            calls.append(dict(kwargs))
+            captured.clear()
             captured.update(kwargs)
+            if fail_on_effort and "output_config" in kwargs:
+                raise TypeError(
+                    "Error code: 400 - output_config.effort: Extra inputs are not permitted")
             return FakeAnthropicResponse(
                 ResolutionJudgement(resolved=False, confidence=0.1, reason="no"))
 
     class FakeClient:
         messages = FakeMessages()
 
-    provider = AnthropicProvider(model="claude-opus-5")
     monkeypatch.setattr(provider, "_client", lambda: FakeClient())
+    return calls
+
+
+def test_the_anthropic_adapter_sends_the_documented_request(monkeypatch):
+    captured = {}
+    provider = AnthropicProvider(model="claude-opus-5")
+    _fake_anthropic(monkeypatch, provider, captured)
     provider.complete_json("sys", "prompt", ResolutionJudgement, "low")
 
     assert captured["model"] == "claude-opus-5"
@@ -220,6 +231,55 @@ def test_the_anthropic_adapter_sends_the_documented_request(monkeypatch):
     assert captured["output_config"] == {"effort": "low"}
     assert captured["system"] == "sys"
     assert captured["messages"] == [{"role": "user", "content": "prompt"}]
+
+
+def test_haiku_is_the_default_model():
+    """The cheapest current model, because this workload is small."""
+    assert AnthropicProvider().model == "claude-haiku-4-5"
+
+
+@pytest.mark.parametrize("model,expected", [
+    ("claude-haiku-4-5", False),
+    ("claude-sonnet-4-5", False),
+    ("claude-opus-5", True),
+    ("claude-sonnet-5", True),
+])
+def test_effort_is_only_sent_to_models_that_accept_it(monkeypatch, model, expected):
+    """Haiku 4.5 and Sonnet 4.5 reject output_config.effort with a 400 —
+    sending it would fail every call on the default model."""
+    captured = {}
+    provider = AnthropicProvider(model=model)
+    _fake_anthropic(monkeypatch, provider, captured)
+    provider.complete_json("sys", "prompt", ResolutionJudgement, "low")
+    assert ("output_config" in captured) is expected
+
+
+def test_a_rejected_effort_parameter_is_retried_without_it(monkeypatch):
+    """Model naming drifts; a 400 about effort must not lose the call."""
+    captured = {}
+    provider = AnthropicProvider(model="claude-opus-5")
+    calls = _fake_anthropic(monkeypatch, provider, captured, fail_on_effort=True)
+
+    result = provider.complete_json("sys", "prompt", ResolutionJudgement, "low")
+
+    assert result.resolved is False
+    assert len(calls) == 2
+    assert "output_config" in calls[0]
+    assert "output_config" not in calls[1]
+
+
+def test_other_api_errors_are_not_retried(monkeypatch):
+    class FakeMessages:
+        def parse(self, **kwargs):
+            raise RuntimeError("Error code: 429 - rate limited")
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    provider = AnthropicProvider(model="claude-haiku-4-5")
+    monkeypatch.setattr(provider, "_client", lambda: FakeClient())
+    with pytest.raises(ProviderError, match="429"):
+        provider.complete_json("sys", "prompt", ResolutionJudgement, "low")
 
 
 def test_a_refusal_is_an_error_not_an_answer(monkeypatch):
