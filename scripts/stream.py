@@ -37,6 +37,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agent.env import load_env
+
+load_env()
+
 from agent import llm
 from logsets.stream import StreamConfig, StreamEvent, StreamRunner
 

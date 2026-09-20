@@ -248,6 +248,37 @@ LLM_PROVIDER=off python scripts/stream.py      # force the deterministic path
 
 `LLM_PROVIDER=auto` (the default) takes the first of: a configured `LLM_BASE_URL`, an `ANTHROPIC_API_KEY`, a local Ollama that answers. Pin it with `anthropic`, `openai`, `ollama` or `off`.
 
+### Providing the key
+
+```bash
+cp .env.example .env          # .env is gitignored
+$EDITOR .env                  # paste the key there
+python scripts/stream.py      # the CLIs load it; "Model: anthropic (claude-haiku-4-5)"
+```
+
+`agent/env.py` loads `.env` at the **entry points only** — a library import never reads it, so running the tests can't pull your credentials into the process. Anything already exported wins over the file, so a shell export or a CI secret overrides a stale checkout.
+
+If you'd rather not keep a key on disk, export it for one shell instead — with a leading space, so it stays out of `~/.bash_history`:
+
+```bash
+ export ANTHROPIC_API_KEY=sk-ant-...      # note the leading space
+read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY   # or type it invisibly
+```
+
+What the repo does to keep it from escaping:
+
+- `.env` is gitignored, and `.env.example` ships with empty values.
+- Exception text is redacted before it reaches a log line or a Slack message (`agent/llm.py::_describe_exception`, `agent/slack_client.py::_redact`), so a 401 quoting your key doesn't end up in `reports/`.
+- Nothing writes a credential into an incident record, a manifest, or a downloadable log-set bundle — those carry log lines and paths only.
+- Keys are never put in a prompt, so no model ever sees one.
+
+Two things worth doing on the provider's side, which matter more than anything in this repo:
+
+- **Use a key scoped to this project**, so revoking it costs you nothing else.
+- **Put a spend limit on it.** On a few-dollars-a-year budget that is the real protection — against a leaked key, and equally against a stream left running overnight.
+
+If a key ever does reach a commit: rotate it first (assume it is public the moment it is pushed), then clean the history. `git grep -iE "sk-ant-|gsk_|xoxb-"` over the tree is a quick check before pushing.
+
 ### What it costs
 
 One incident is one narration call plus a judge call per batch of Slack replies — measured at about **2,700 input and 290 output tokens**, most of it the 40 log lines of context (`MAX_CONTEXT_LINES` in `agent/llm.py`).

@@ -29,6 +29,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agent.env import load_env
+
+load_env()
+
 from agent.incident import load
 from agent.slack_client import SlackClient
 

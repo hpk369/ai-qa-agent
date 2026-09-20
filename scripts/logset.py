@@ -25,6 +25,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agent.env import load_env
+
+load_env()
+
 from agent.incident import load, record_approval_decision, resolve_incident, set_status
 from logsets.catalog import SOURCES
 from logsets.session import bundle, list_sessions, load_session
