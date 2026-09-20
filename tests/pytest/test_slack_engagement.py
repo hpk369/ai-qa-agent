@@ -1,5 +1,5 @@
 """
-Tests for agent.incident.sync_slack_engagement and resolve_incident (T1.8).
+Tests for agent.incident.sync_slack_engagement and resolve_incident.
 A fake Slack client (not agent.slack_client.SlackClient) supplies
 thread-reply/reaction fixtures directly, since real polling can't be
 exercised without a live Slack workspace — see SlackClient.get_thread_replies's

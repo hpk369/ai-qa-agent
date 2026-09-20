@@ -1,25 +1,34 @@
 # ETL Production Support Triage Agent
 
-**[▶ Live Demo](https://demo.inkandinfra.com/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons — see [demo pages](#demo-pages) below for exactly what is and isn't live in it.
+**[▶ Live Demo](https://demo.inkandinfra.com/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons.
 
 When a production ETL job breaks, the question that matters isn't "did the pipeline pass or fail" — it's "what's the severity, who's affected, and what do I do in the first fifteen minutes." This project answers that from the one artifact an on-call analyst always has: **the logs**.
 
 Each session gets its own log set — a few log files mixed from a corpus of real, public production logs (Spark, YARN, HDFS, ZooKeeper, OpenStack, syslog, sshd, and more) with ETL failure signatures injected into them. The agent reads the log text, derives severity signals from it, classifies them with a deterministic config-driven ruleset, opens a structured incident record, and **posts a Slack alert**. The thread reply carries a link to download the exact log set that produced the alert, so the call can be checked against the evidence.
 
-## Scope
+## What this is
 
-**One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** That is the project. It runs with no API key, no cluster, and no services — `python scripts/logset.py` does the whole thing.
+**One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** It runs with no API key, no cluster and no services — `python scripts/logset.py` does the whole thing on a fresh clone.
 
-What is deliberately **not** here:
+The pieces behind that loop:
 
-- **A real Hadoop stack.** The HDFS/YARN/Hive/Spark-on-YARN build (`expansion-plan.md` Track B, `infra/bankdemo/`) is **dropped**, not pending. It cost more time than it returned, and the triage layer never needed it: real *logs* from those systems are what the agent reads, and those are available publicly without standing a cluster up. The specs stay in the tree as a record of the decision — see [`ROADMAP.md`](ROADMAP.md) §0.
-- **A live Slack workspace.** `SLACK_MODE=stub` (the default) writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post for real — [`docs/PHASE1_SETUP.md`](docs/PHASE1_SETUP.md) lists every prerequisite. Nothing in this repo has been run against a live workspace, and nothing here claims it has.
+| Piece | Where |
+|---|---|
+| 15 log sources and 14 ETL error signatures | `logsets/catalog.py` |
+| Public log corpus, fetched at setup, with a generated fallback | `logsets/corpus.py`, `scripts/fetch_logs.py` |
+| Per-session mixing, ground-truth manifest, zip bundle | `logsets/session.py` |
+| Analysis → signals → severity → incident → Slack alert | `logsets/triage.py` |
+| Deterministic severity, thresholds in config rather than code | `agent/severity.py`, `config/severity.yml` |
+| Incident record, approval gate, MTTA/MTTR | `agent/incident.py`, `scripts/incident_metrics.py` |
+| Slack Web API client, Block Kit messages, HMAC verification | `agent/slack_client.py`, `agent/slack_blocks.py`, `agent/slack_verify.py` |
+| Five runbooks, deterministically selected | `agent/runbooks.py`, `docs/runbooks/` |
+| Entry points | `scripts/logset.py`, `POST /logset/run`, `GET /logset/{id}/download` |
 
-What was already built and still stands, because the log-set path reuses all of it: deterministic severity (`agent/severity.py` + `config/severity.yml`), the incident record and its approval gate (`agent/incident.py`), Block Kit messages (`agent/slack_blocks.py`), five runbooks with deterministic selection (`agent/runbooks.py`), and MTTA/MTTR metrics (`scripts/incident_metrics.py`).
+**Slack runs in stub mode by default.** `SLACK_MODE=stub` writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path — parent message, thread reply, P1 mirror, button interactions — runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post into a real workspace; [`docs/SLACK_SETUP.md`](docs/SLACK_SETUP.md) walks through obtaining each value.
 
-The earlier Claude tool-use path (`POST /agent/run` against the Postgres/Kafka mock, driven by n8n) is still in the tree and still tested. It is no longer the main path.
+A second path is also in the tree and tested: a Claude tool-use loop (`POST /agent/run`) over a mock Postgres/Kafka pipeline, orchestrated by n8n. It shares the same severity classifier, incident record and Slack layer.
 
-<a id="demo-pages"></a>**Demo page.** [`docs/index.html`](https://demo.inkandinfra.com/) is a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s output per failure mode, including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend; the Claude call itself is not live in it, and it still shows the mock-pipeline failure modes rather than the log-set path.
+<a id="demo-pages"></a>**Demo page.** [`docs/index.html`](https://demo.inkandinfra.com/) is a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s output for each mock-pipeline failure mode, including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend, so it works unmodified on GitHub Pages.
 
 ## Log-set triage
 
@@ -145,9 +154,9 @@ Background lines come from the [LogHub](https://github.com/logpai/loghub) collec
 
 Two hits of the same signature are not twice as bad — signals merge by taking the worse value, except blocked downstream jobs, which add up. A test renders every signature 25 times and asserts the analyser finds it and that its signals classify to a real severity: a failure mode the mixer can inject but the analyser cannot find would be the worst kind of bug here.
 
-## The earlier tool-use path
+## The tool-use path
 
-Still in the tree, still tested, no longer the main path: a Claude tool-use loop over the Postgres/Kafka mock pipeline, orchestrated by n8n.
+A Claude tool-use loop over the mock Postgres/Kafka pipeline, orchestrated by n8n — the second path through the same triage layer.
 
 ```
 Kafka event / cron / webhook
@@ -184,7 +193,7 @@ Kafka event / cron / webhook
 
 ## Agent Response Contract
 
-`POST /agent/run` now returns:
+`POST /agent/run` returns:
 
 ```json
 {
@@ -204,7 +213,7 @@ The complete workflow lives in `n8n_workflows/qa_agent_workflow.json` — import
 
 ### Workflow Map
 
-**As of Phase 1 (T1.4), n8n no longer talks to Slack at all.** The Python
+**n8n does not talk to Slack at all.** The Python
 agent server posts incidents to Slack itself, right inside `/agent/run`,
 and Slack's own interactivity Request URL points at a new endpoint on
 that same server (`/slack/action`), not at n8n. Full rationale and the
@@ -244,13 +253,13 @@ URL actually needs to point at) is in [`docs/workflow-map.md`](docs/workflow-map
 ### Design Decisions
 
 **Why clean → Robot Framework and incident → pytest?**
-Robot Framework's keyword-driven syntax maps naturally to business-level pipeline contracts. `Logs Should Contain No Errors` and `Row Drop Should Be Under Threshold` are readable specifications, not code — and re-running the same suite after remediation is what actually confirms an incident is resolved, not just that a human believes it is. pytest provides fast, targeted unit-level feedback when something breaks: the diagnostic deep-dive that tells you exactly which transformation step failed, not just that the pipeline didn't pass an end-to-end check. This is the same split the project started with; Phase 0 sharpened *why* each side runs rather than changing which side runs when.
+Robot Framework's keyword-driven syntax maps naturally to business-level pipeline contracts. `Logs Should Contain No Errors` and `Row Drop Should Be Under Threshold` are readable specifications, not code — and re-running the same suite after remediation is what actually confirms an incident is resolved, not just that a human believes it is. pytest provides fast, targeted unit-level feedback when something breaks: the diagnostic deep-dive that tells you exactly which transformation step failed, not just that the pipeline didn't pass an end-to-end check.
 
 **Why `responseMode: responseNode`?**
 Holding the webhook connection open means any caller — a Kafka consumer, a CI step, a `curl` command — receives the full incident record synchronously in a single HTTP call. No polling, no callback URL, no second request.
 
-**Why did Slack posting move out of n8n and into the Python agent?**
-T1.1–T1.3 built a fully unit-tested Slack Web API client, Block Kit builder, and HMAC signature verifier in Python, and `post_incident()` needs to mutate and re-persist the same `Incident` object it posts — something only the process that owns `agent/incident.py::persist` can do cleanly. Re-implementing Block Kit rendering and signature verification a second time in n8n's JS Code nodes would mean two implementations of the same logic, one of them untested in an environment with no running n8n instance to check JS against. See `docs/workflow-map.md` for the full reasoning and the resulting endpoint topology.
+**Why does the Python agent post to Slack rather than n8n?**
+The Slack Web API client, Block Kit builder and HMAC signature verifier are fully unit-tested Python, and `post_incident()` needs to mutate and re-persist the same `Incident` object it posts — something only the process that owns `agent/incident.py::persist` can do cleanly. Re-implementing Block Kit rendering and signature verification a second time in n8n's JS Code nodes would mean two implementations of the same logic, one of them untested in an environment with no running n8n instance to check JS against. See `docs/workflow-map.md` for the full reasoning and the resulting endpoint topology.
 
 **Why does severity classification live outside the model?**
 An LLM asked to both observe evidence and assign a severity label will occasionally assign different severities to identical evidence across runs, and there is no way to audit *why* short of re-reading its reasoning trace. `agent/severity.py` reads the same evidence and applies the same YAML-configured thresholds every time — the same input always produces the same severity, and `matched_conditions` names exactly why. The model's only job is to report what it actually observed accurately.
@@ -267,7 +276,7 @@ python scripts/logset.py         # mix, triage, alert, print the download path
 
 That is the whole main path: no API key, no Docker, no Slack workspace. The alert lands in `reports/slack/` and the log set in `reports/logsets/`.
 
-For the earlier tool-use path (Claude + n8n + the mock pipeline) you need the stack:
+For the tool-use path (Claude + n8n + the mock pipeline) you need the stack:
 
 ```bash
 cp .env.example .env
@@ -297,7 +306,7 @@ INJECT_FAILURE=null_spike python mock_pipeline/producer.py
 INJECT_FAILURE=latency python mock_pipeline/producer.py
 ```
 
-Severities above reflect `config/severity.yml`'s current thresholds against each mode's characteristic signal — see `tests/pytest/test_agent_response.py` for the exact signal-to-severity mapping tested for each mode, and `expansion-plan.md` §4.A1 for the rationale behind the thresholds themselves.
+Severities above reflect `config/severity.yml`'s thresholds against each mode's characteristic signal — see `tests/pytest/test_agent_response.py` for the exact signal-to-severity mapping tested for each mode.
 
 The commands above go through the full pipeline (Kafka → n8n → agent, requiring `ANTHROPIC_API_KEY` and the whole stack running). For a live demo or to verify a real Slack setup without any of that, use the demo scripts instead:
 
@@ -337,12 +346,10 @@ robot --outputdir reports/robot tests/robot/acceptance.robot
 
 ```
 ai-qa-agent/
-├── expansion-plan.md       # Strategy: why this project is being repositioned, and how
-├── IMPLEMENTATION.md       # Task-by-task build spec (source of truth for what's built and in what order)
 ├── logsets/                # THE MAIN PATH — log sources + error signatures (catalog.py),
 │                           #   corpus fetch/fallback (corpus.py), per-session mixing
 │                           #   (session.py), analysis → severity → incident → Slack (triage.py)
-├── mock_pipeline/          # Simulated Big Data pipeline + failure injection (earlier path)
+├── mock_pipeline/          # Simulated pipeline + failure injection (tool-use path)
 ├── agent_tools/            # SQL validator, log analyser, schema comparator + FastAPI server
 ├── agent/                  # Claude tool-use loop, severity classifier, incident records, Slack client/blocks/verify, runbook selection, evidence bundle
 ├── config/                 # severity.yml — thresholds live here, never in code
@@ -354,7 +361,7 @@ ai-qa-agent/
 │   ├── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
 │   └── robot/              # Keyword-driven E2E validation checks
 ├── n8n_workflows/          # Importable n8n workflow JSON (Slack posting lives in agent/, not here — see docs/workflow-map.md)
-├── docs/                   # INVENTORY.md, workflow-map.md, runbooks/ + the live demo (pre-triage contract; see Phase status)
+├── docs/                   # workflow-map.md, SLACK_SETUP.md, runbooks/ + the live demo page
 ├── reports/                # Session log sets + their zips, persisted incidents, evidence
 │                           #   bundles, stub Slack payloads, test output
 ├── docker-compose.yml
@@ -377,16 +384,14 @@ ai-qa-agent/
 |---|---|
 | Log corpus | [LogHub](https://github.com/logpai/loghub) public system logs, fetched at setup (`scripts/fetch_logs.py`), with a generated fallback |
 | Log-set mixing & analysis | Python 3.11 (`logsets/`) — seeded mixing, regex signature catalogue, no model in the loop |
-| Workflow orchestration | n8n (self-hosted via Docker) — earlier path only |
+| Workflow orchestration | n8n (self-hosted via Docker) — tool-use path |
 | LLM agent | Claude API, tool-use mode — reports signals, not severity |
 | Severity classification | Deterministic Python, config-driven (`agent/severity.py` + `config/severity.yml`) |
 | Tool API server | Python 3.11 + FastAPI |
 | Acceptance / restoration validation | Robot Framework 7.x |
 | Diagnostic / unit testing | pytest 8.x |
 | Mock pipeline | Python + kafka-python |
-| Database | PostgreSQL 15 — provisioned in `docker-compose.yml`; see `docs/INVENTORY.md` §8 for the current gap between that and what the tools actually query in mock mode |
+| Database | PostgreSQL 15 — provisioned in `docker-compose.yml` for the tool-use path |
 | Containerisation | Docker + Docker Compose |
 | CI integration | Jenkins webhook |
-| Notifications | Slack bot-token app (`agent/slack_client.py`), posted directly by the Python agent — threaded, editable in place. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required; see [Phase status](#phase-status). |
-
-A Hadoop-aligned stack (HDFS, YARN, Hive, Spark-on-YARN) was planned in `expansion-plan.md` Track B and `infra/bankdemo/`. It is **dropped** — see [Scope](#scope) and [`ROADMAP.md`](ROADMAP.md) §0. What the agent reads instead is real *logs* from those systems, which are available publicly without running one.
+| Notifications | Slack bot-token app (`agent/slack_client.py`), posted directly by the Python agent — threaded, editable in place. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required. |

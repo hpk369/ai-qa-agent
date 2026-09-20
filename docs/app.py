@@ -4,14 +4,13 @@ Self-contained: runs without Docker, Postgres, or Kafka.
 Streams agent reasoning step-by-step via SSE.
 
 NOTE on terminology: this demo's SSE payload and its VERDICTS table still
-speak the pre-T0.4 `verdict`/PASS-FAIL contract. This is now the ONE
-remaining piece of the repo on that old contract — docs/index.html (the
-page that actually renders on GitHub Pages) was rewritten to the real
-incident/severity contract ahead of IMPLEMENTATION.md's Phase 5, since
-that's what a visitor to the hosted demo actually sees; docs/index_v2.html
-was deleted rather than carried forward. index.html has never called this
-server live in either version — it's a fully self-contained client-side
-simulator with its own inlined scenario data, independent of this file.
+speak the older `verdict`/PASS-FAIL contract. This is the ONE remaining
+piece of the repo on that contract — docs/index.html (the page that
+actually renders on GitHub Pages) speaks the real incident/severity
+contract, since that's what a visitor to the hosted demo sees.
+index.html has never called this server live — it's a fully
+self-contained client-side simulator with its own inlined scenario data,
+independent of this file.
 This file remains useful only for someone who clones the repo and runs
 `python docs/app.py` directly; its own rewrite to the new contract is
 still pending and, unlike index.html, isn't required for the hosted demo

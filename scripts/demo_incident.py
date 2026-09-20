@@ -13,7 +13,7 @@ asserts against, so a demo run and a test run are checking the same thing.
 Respects the same SLACK_MODE/SLACK_BOT_TOKEN/... environment variables as
 the real agent server: run with SLACK_MODE=stub (the default) to preview
 locally with zero setup, or point a real .env at a live workspace and this
-posts for real — see docs/PHASE1_SETUP.md.
+posts for real — see docs/SLACK_SETUP.md.
 
 Usage:
     scripts/demo_incident.py <mode> [--lifecycle] [--actor USER_ID] [--json]

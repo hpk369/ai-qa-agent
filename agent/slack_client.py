@@ -1,6 +1,6 @@
 """
 Slack Web API client — bot token only. The old SLACK_WEBHOOK_URL incoming
-webhook (still used by n8n_workflows/qa_agent_workflow.json until T1.4)
+webhook (still referenced by n8n_workflows/qa_agent_workflow.json)
 cannot return a message ts, cannot update a message, and cannot carry
 interactivity, so it cannot thread an incident. This client can.
 
@@ -10,16 +10,13 @@ synthetic ts, making no network call at all — this is what keeps the repo
 fully runnable and testable without a live Slack workspace. Set
 SLACK_MODE=live once a real bot token and channels exist.
 
-Block Kit content comes from agent.slack_blocks (T1.2), not from this
+Block Kit content comes from agent.slack_blocks, not from this
 module — post_incident/update_parent/mirror_p1 all take (incident, blocks,
 text) exactly like reply_thread does, rather than building content
-internally. This is a deliberate, small departure from
-IMPLEMENTATION.md's literal `post_incident(incident) -> str` signature
-list: building blocks internally here would make this module import
-agent.slack_blocks, which doesn't exist until the very next task, and
-"tests pass before every commit" means T1.1 cannot depend on T1.2's module
-existing yet. Applying reply_thread's own (incident, blocks, text) shape
-uniformly avoids that forward dependency and keeps transport (this module)
+internally. Building blocks internally here would make this module
+import agent.slack_blocks, inverting the dependency: transport would
+then depend on content-building. Applying reply_thread's own
+(incident, blocks, text) shape uniformly keeps transport (this module)
 cleanly separate from content-building (slack_blocks) — the caller (the
 agent loop, or a test) is responsible for building blocks via
 agent.slack_blocks and passing them in. post_change_log is the one
@@ -185,7 +182,7 @@ class SlackClient:
 
     def mirror_to_p1(self, incident: Incident, blocks: list[dict], text: str) -> str:
         """Unconditionally post to #etl-prod-p1 with <!here>. mirror_p1
-        gates this on severity == P1; an escalate decision (T1.5) calls
+        gates this on severity == P1; an escalate decision calls
         this directly to force P1-channel visibility regardless of the
         incident's actual severity."""
         payload = {
@@ -205,7 +202,7 @@ class SlackClient:
 
     def get_thread_replies(self, incident: Incident) -> list[dict]:
         """
-        conversations.replies on the parent message — used by T1.8's MTTA
+        conversations.replies on the parent message — used by the MTTA
         sync to find the first human reply. Returns Slack's raw list of
         messages (the parent itself included as the first element), or []
         if the incident hasn't been posted yet.

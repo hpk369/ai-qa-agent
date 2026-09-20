@@ -10,8 +10,8 @@ the incident's parent message shows `*Rows loaded / expected:*` with the loaded
 figure well under the expected one, and `severity_rationale` names
 `row_variance_pct >= 5.0`. **Before treating this as a shortfall, rule out
 RB-002**: a schema change that silently breaks a required column can also
-present as fewer usable rows, and `stale_partitions` (Phase 3, once the
-Hadoop stack lands) looks identical to a real shortfall from row counts alone.
+present as fewer usable rows, and a stale partition looks identical to a
+real shortfall from row counts alone.
 
 ## Impact
 Downstream jobs and dashboards reading the target table are working from an
@@ -49,7 +49,7 @@ three downstream reporting jobs cannot start" — not the Spark stage name.
    pytest tests/pytest/test_sql_validator.py -v
    ```
 
-5. Check the evidence bundle collected at incident open (T1.7) for the job
+5. Check the evidence bundle collected at incident open for the job
    log and target DDL:
    ```bash
    cat reports/evidence/<incident_id>/manifest.json
@@ -59,7 +59,7 @@ three downstream reporting jobs cannot start" — not the Spark stage name.
 
 | Option | Risk | Requires approval | Notes |
 |---|---|---|---|
-| Re-run the load unchanged | Low | No (P3/P4) / Yes (P1/P2 — see `requires_approval` on the incident) | Fixes a one-off transient failure (a killed executor, a flaky source read). Confirm idempotency first — see RB's "duplicate_on_rerun" note in expansion-plan.md §5 B3 once that check exists. |
+| Re-run the load unchanged | Low | No (P3/P4) / Yes (P1/P2 — see `requires_approval` on the incident) | Fixes a one-off transient failure (a killed executor, a flaky source read). Confirm idempotency first — a re-run that duplicates already-loaded rows makes reconciliation worse. |
 | Re-run with a corrected transform (fix a real dedup/partition bug) | Medium | Yes | Only once the root cause is identified — don't guess-and-retry against a real logic bug. |
 | Manual backfill of the missing rows | High | Yes | Last resort; requires reconciling against the source to avoid duplicating rows already loaded correctly. |
 

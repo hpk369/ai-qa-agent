@@ -1,6 +1,6 @@
 """
 Incident record — the system of record for the ETL Production Support
-Triage Agent. Slack (agent/slack_client.py, Phase 1) is a view onto this
+Triage Agent. Slack (agent/slack_client.py) is a view onto this
 object; this module is the only thing that writes it.
 
 Every non-clean run produces an Incident, persisted to
@@ -27,7 +27,7 @@ SCHEMA_PATH = REPO_ROOT / "schemas" / "incident.schema.json"
 INCIDENTS_DIR = REPO_ROOT / "reports" / "incidents"
 
 # Actors whose timeline entries do not count as a human response for MTTA
-# purposes. Extended in Phase 1 to exclude the Slack bot's own user ID.
+# purposes. Also excludes the Slack bot's own user ID.
 NON_HUMAN_ACTORS = {"system", "agent", "bot"}
 
 TERMINAL_STATUSES = {"resolved", "false_positive"}
@@ -192,7 +192,7 @@ def record_approval_decision(incident: Incident, decision: str, approver: str, s
     means no remediation proceeds without exactly one of these being
     recorded; a second decision on an already-decided incident is
     rejected and reported in the Slack thread rather than silently
-    ignored, per T1.5.
+    ignored.
 
     approved -> status "remediating"; rejected -> "acknowledged" (a human
     looked at it and declined the proposed action, but the incident is
@@ -254,7 +254,7 @@ def compute_mtta(incident: Incident) -> int | None:
     """
     Seconds from opened_at to the first human timeline event — a thread
     reply or reaction from a non-bot user (agent.slack_client wires the
-    real Slack signal in Phase 1). Here, "human" means any timeline entry
+    real Slack signal). Here, "human" means any timeline entry
     whose actor is not in NON_HUMAN_ACTORS. Returns None if no such event
     has been recorded yet.
     """
@@ -324,7 +324,7 @@ def resolve_incident(incident: Incident, actor: str, slack_client=None) -> Incid
     transitions to status "resolved" (set_status computes mttr_seconds),
     persists, and updates the Slack parent message to show RESOLVED plus
     both MTTA/MTTR figures — agent.slack_blocks.build_parent_message
-    already renders that state once status/mtta/mttr are set; see T1.2.
+    already renders that state once status/mtta/mttr are set.
     """
     from agent.slack_blocks import build_parent_message
     from agent.slack_client import SlackClient

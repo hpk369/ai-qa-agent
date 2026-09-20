@@ -49,15 +49,14 @@ downstream job being delayed.
 
 4. If `downstream_jobs_blocked`: identify exactly which jobs, and whether
    they're blocked on this table specifically or on something upstream of
-   it too — check the scheduler's dependency graph or, once Oozie/Airflow
-   lands (`expansion-plan.md` Track B), the coordinator's dataset
-   dependencies.
+   it too — check the scheduler's dependency graph, or the coordinator's
+   dataset dependencies if the jobs are Airflow/Oozie-scheduled.
 
 5. If duration far exceeds baseline: check for the two most common causes
    in a Spark job — partition skew (one task running far longer than the
    rest) and executor memory pressure/GC thrashing — via the job's own
-   logs/metrics; once the Hadoop stack lands, `yarn logs -applicationId
-   <id>` is the primary tool here (see `expansion-plan.md` Track B).
+   logs/metrics; on a YARN cluster, `yarn logs -applicationId <id>` is the
+   primary tool here.
 
 ## Remediation options
 
@@ -75,8 +74,7 @@ complete; engage the app-dev team that owns the affected job, and open an
 incident bridge for P1.
 
 ## Prevention
-Varies by underlying cause — see the postmortem for the specific incident
-(`docs/postmortems/`, Phase 5) for the permanent fix and its owner. This
-runbook's breadth is itself a signal that the underlying failure modes it
-covers should eventually be split into more specific, purpose-built checks
-as this project's failure taxonomy grows (see `expansion-plan.md` §5 B3).
+Varies by underlying cause — the postmortem for the specific incident
+carries the permanent fix and its owner. This runbook's breadth is itself
+a signal that the failure modes it covers are worth splitting into more
+specific, purpose-built checks as the failure taxonomy grows.
