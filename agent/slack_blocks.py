@@ -1,8 +1,8 @@
 """
 Block Kit builders for the incident channel. Moves the parent message off
-mrkdwn strings (the old n8n Code node's approach) onto structured Block
-Kit, so a P1 and a P4 are visually distinguishable without reading, and so
-the message can be edited in place via chat.update.
+Puts the incident message on structured Block Kit rather than mrkdwn
+strings, so a P1 and a P4 are visually distinguishable without reading,
+and so the message can be edited in place via chat.update.
 
 Every builder here is pure — no network calls, no Incident mutation — and
 every payload is validated against Slack's own block limits before it is

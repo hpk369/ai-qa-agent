@@ -21,7 +21,7 @@ ALLOWED_SKEW_SECONDS = 300
 
 def _get_header(headers: dict, name: str) -> str | None:
     """Case-insensitive header lookup — `headers` may come from different
-    callers (a raw WSGI/ASGI dict, an n8n Code node's own casing, ...)."""
+    callers (a raw WSGI/ASGI dict, a framework's own casing, ...)."""
     name_lower = name.lower()
     for key, value in headers.items():
         if key.lower() == name_lower:

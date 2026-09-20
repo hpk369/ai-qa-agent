@@ -5,7 +5,6 @@ ordering, MTTA with no human event, MTTR on a resolved incident, and a
 round-trip persist/load.
 """
 
-import json
 import os
 import sys
 
@@ -16,7 +15,6 @@ import pytest
 
 from agent import incident as incident_module
 from agent.incident import (
-    Incident,
     append_timeline,
     compute_mtta,
     compute_mttr,

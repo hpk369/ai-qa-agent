@@ -1,8 +1,8 @@
 """
 Deterministic runbook selection. Like severity, which runbook an incident
-links to is decided by code reading the reported signals, not by the
-model choosing a path string — the same evidence must always point at the
-same runbook.
+links to is decided by code reading the reported signals rather than
+inferred per incident — the same evidence must always point at the same
+runbook.
 
 Checked in order; the first matching signal wins. Order matters where
 signals could co-occur (e.g. a schema-drift-shaped failure could

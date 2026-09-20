@@ -27,7 +27,6 @@ from logsets.catalog import (
     SOURCES,
     format_line,
     signature_by_id,
-    signatures_for_family,
     source_by_name,
 )
 from logsets.corpus import GENERATED, REAL, background_lines, corpus_status
@@ -36,7 +35,6 @@ from logsets.triage import (
     _merge_signals,
     analyse_file,
     analyse_logset,
-    logset_summary,
     score,
     triage_logset,
 )
@@ -396,8 +394,8 @@ def test_severity_stays_deterministic_for_a_given_seed(root, empty_corpus):
 
 
 def test_control_total_mismatch_is_a_p1_with_an_approval_gate(root, empty_corpus):
-    result = triage_logset(seed=1, sources=["hive-metastore"], injections=0,
-                           root=root, corpus_dir=empty_corpus, notify=False, session_id="ct")
+    triage_logset(seed=1, sources=["hive-metastore"], injections=0,
+                  root=root, corpus_dir=empty_corpus, notify=False, session_id="ct")
     logset = load_session("ct", root)
     target = logset.directory / "hive-metastore.log"
     target.write_text(target.read_text() +
@@ -518,3 +516,39 @@ def test_unknown_and_unsafe_session_ids_are_refused(client):
 def test_list_endpoint_reports_built_sessions(client):
     session_id = client.post("/logset/run", json={"seed": 317, "notify": False}).json()["session_id"]
     assert session_id in client.get("/logset").json()["sessions"]
+
+
+# ---------- The incident lifecycle the CLI walks ----------
+
+def _load_cli():
+    """scripts/ is not a package — load the CLI module by path."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "logset.py"
+    spec = importlib.util.spec_from_file_location("logset_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_cli_lifecycle_walks_an_incident_to_resolved(root, empty_corpus, incidents_dir):
+    """--lifecycle drives the same functions the Slack buttons drive, so a
+    demo run and a real approval take the same path through the record."""
+    from agent.incident import load
+
+    result = triage_logset(seed=4242, injections=2, root=root,
+                           corpus_dir=empty_corpus, notify=False)
+    incident_id = result["incident"]["incident_id"]
+
+    _load_cli().run_lifecycle(incident_id, "U_TEST")
+
+    incident = load(incident_id)
+    assert incident.status == "resolved"
+    assert incident.mtta_seconds is not None
+    assert incident.mttr_seconds is not None
+    events = [entry["event"] for entry in incident.timeline]
+    assert events[0] == "opened"
+    assert "approval_decision" in events
+    decision = next(e for e in incident.timeline if e["event"] == "approval_decision")
+    assert "approved" in decision["detail"]
+    assert decision["actor"] == "U_TEST"

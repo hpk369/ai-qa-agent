@@ -1,21 +1,20 @@
-# API & web
-anthropic>=0.40.0
+# Web server — the log-set API and the Slack interactivity endpoint
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
-httpx>=0.27.0
 pydantic>=2.0.0
-PyYAML>=6.0.1
-jsonschema>=4.22.0
 
-# Database
-psycopg2-binary>=2.9.9
+# Slack Web API transport
+httpx>=0.27.0
 
-# Kafka
-kafka-python>=2.0.2
+# Optional — only for the Claude provider (agent/providers.py). A local
+# Ollama or any other OpenAI-compatible endpoint needs nothing extra:
+# that adapter speaks plain HTTP over the httpx above. With no provider
+# configured at all, every call falls back to deterministic text.
+anthropic>=1.7.0
+
+# Config and contracts
+PyYAML>=6.0.1          # config/severity.yml
+jsonschema>=4.22.0     # schemas/incident.schema.json
 
 # Testing
 pytest>=8.0.0
-pytest-asyncio>=0.23.0
-robotframework>=7.0
-robotframework-requests>=0.9.5
-robotframework-databaselibrary>=1.4.0

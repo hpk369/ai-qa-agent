@@ -6,9 +6,9 @@ MTTA/MTTR Slack sync) runs against `SLACK_MODE=stub` out of the box,
 writing every payload to `reports/slack/` with no network call. This is
 the checklist for switching it to `SLACK_MODE=live`.
 
-**Topology note:** Slack posting and interactivity live in the Python
-agent server, not in n8n (see [`docs/workflow-map.md`](workflow-map.md)),
-so **the tunnel needs to reach the agent server on port 8001**.
+**Topology note:** the agent server posts to Slack and handles Slack's
+button clicks itself, so **the tunnel needs to reach the agent server on
+port 8001**.
 
 ---
 
@@ -91,8 +91,7 @@ Now go back to your Slack app's **Interactivity & Shortcuts** page and
 set the **Request URL** to `{PUBLIC_WEBHOOK_BASE}/slack/action` (e.g.
 `https://triage.inkandinfra.com/slack/action`) — Slack will send a test
 ping the moment you save this, so the agent server needs to already be
-running (`python agent/agent.py`, or via `docker compose up`) before you
-save it.
+running (`python agent/agent.py`) before you save it.
 
 ## 6. Populate `.env`
 
@@ -113,12 +112,11 @@ covered by the test suite.
 ## 7. Verify
 
 ```bash
-# Start the agent server (needs ANTHROPIC_API_KEY set too)
+# Start the agent server
 python agent/agent.py
-# or: docker compose up agent_server
 
-# Trigger a run that will open an incident
-INJECT_FAILURE=row_drop python mock_pipeline/producer.py
+# In another shell: mix a log set and triage it, which opens an incident
+python scripts/logset.py --injections 2
 ```
 
 You should see a Block Kit message land in `#etl-prod-alerts` within a

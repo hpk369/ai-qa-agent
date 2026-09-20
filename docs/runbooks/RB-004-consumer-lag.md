@@ -19,24 +19,19 @@ data" — not the raw log line.
 
 ## Diagnostic steps
 
-1. Confirm the current lag directly:
+1. Confirm the current lag against the cluster, not the log line that
+   alerted:
    ```bash
-   curl -s -X POST http://localhost:8000/tools/log_analyser \
-     -H 'Content-Type: application/json' \
-     -d '{"log_path":"/mock/diagnostic.log"}' | jq '.kafka_lag'
-   ```
-   Against a real deployment, use the Kafka CLI instead:
-   ```bash
-   docker compose exec kafka kafka-consumer-groups --bootstrap-server localhost:9092 \
+   kafka-consumer-groups --bootstrap-server <broker>:9092 \
      --describe --group <consumer-group-name>
    ```
    The `LAG` column per partition tells you whether the lag is concentrated
    on one partition (a skew/hot-key problem) or spread evenly (a
    throughput/capacity problem).
 
-2. Reproduce locally:
+2. Read the lag lines the alert fired on, and what preceded them:
    ```bash
-   INJECT_FAILURE=latency python mock_pipeline/producer.py
+   grep -n -B5 'lag exceeded threshold' reports/logsets/<session_id>/*.log
    ```
 
 3. Check whether lag is growing, flat, or shrinking — a single point-in-time

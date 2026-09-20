@@ -22,19 +22,23 @@ zero" — not "schema_comparator returned columns_renamed".
 
 ## Diagnostic steps
 
-1. Pull the exact column diff from the incident's evidence, or re-run the
-   comparator directly:
-   ```bash
-   curl -s -X POST http://localhost:8000/tools/schema_comparator \
-     -H 'Content-Type: application/json' \
-     -d '{"source_table":"src.transactions","target_table":"tgt.transactions"}' | jq
+1. Get the exact column diff from the live tables — the log names the
+   column that broke the write, the catalogue tells you what else moved
+   with it:
+   ```sql
+   SELECT column_name, data_type FROM information_schema.columns
+    WHERE table_schema = 'tgt' AND table_name = 'transactions'
+   EXCEPT
+   SELECT column_name, data_type FROM information_schema.columns
+    WHERE table_schema = 'src' AND table_name = 'transactions';
    ```
-   The response's `columns_renamed`/`columns_removed`/`columns_added`/
-   `type_changes` arrays name exactly what changed.
+   A column that moved rather than vanished (a rename) needs a different
+   fix from one that was dropped.
 
-2. Reproduce locally against the mock pipeline:
+2. Re-read the log set the alert came from, in full:
    ```bash
-   INJECT_FAILURE=schema_drift python mock_pipeline/producer.py
+   python scripts/logset.py --show <session_id>
+   grep -n -B3 -A3 'not found in target schema' reports/logsets/<session_id>/*.log
    ```
 
 3. Confirm this isn't a detector false positive:

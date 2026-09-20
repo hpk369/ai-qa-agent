@@ -29,7 +29,7 @@
         "type": "mrkdwn"
       },
       {
-        "text": "*Detected by:*\nsql_validator",
+        "text": "*Detected by:*\nlogset-triage",
         "type": "mrkdwn"
       },
       {

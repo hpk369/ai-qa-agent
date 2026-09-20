@@ -1,7 +1,6 @@
 """
-Slack Web API client — bot token only. The old SLACK_WEBHOOK_URL incoming
-webhook (still referenced by n8n_workflows/qa_agent_workflow.json)
-cannot return a message ts, cannot update a message, and cannot carry
+Slack Web API client — bot token only. An incoming webhook cannot
+return a message ts, cannot update a message, and cannot carry
 interactivity, so it cannot thread an incident. This client can.
 
 SLACK_MODE=stub (the default when unset) writes every payload Slack would
@@ -30,7 +29,6 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -38,6 +36,9 @@ from agent.incident import Incident, persist
 
 SLACK_API_BASE = "https://slack.com/api"
 STUB_DIR = Path(os.path.join(os.path.dirname(__file__), "..", "reports", "slack"))
+# Stub mode's inbound half: one JSONL file per incident holding the replies
+# and reactions a human "sent" back. scripts/slack_reply.py writes them.
+INBOX_DIRNAME = "inbox"
 
 MAX_ATTEMPTS = 3
 DEFAULT_RETRY_AFTER_SECONDS = 1
@@ -200,33 +201,61 @@ class SlackClient:
             return None
         return self.mirror_to_p1(incident, blocks, text)
 
+    def inbox_path(self, incident: Incident) -> Path:
+        """Where stub mode reads inbound thread activity from."""
+        return STUB_DIR / INBOX_DIRNAME / f"{incident.incident_id}.jsonl"
+
+    def _read_inbox(self, incident: Incident) -> list[dict]:
+        path = self.inbox_path(incident)
+        if not path.exists():
+            return []
+        entries = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a half-written line from a concurrent append; it'll be read next poll
+        return entries
+
     def get_thread_replies(self, incident: Incident) -> list[dict]:
         """
         conversations.replies on the parent message — used by the MTTA
-        sync to find the first human reply. Returns Slack's raw list of
-        messages (the parent itself included as the first element), or []
-        if the incident hasn't been posted yet.
+        sync, and by the streaming gate to find out whether a human has
+        said the incident is fixed. Returns Slack's raw list of messages
+        (the parent itself included as the first element), or [] if the
+        incident hasn't been posted yet.
 
-        Stub mode has nothing meaningful to return here: stub mode only
-        ever records outbound payloads (what would have been sent), not a
-        simulated Slack-side response to a read call, so this always
-        returns [] in stub mode — a documented limitation, not a bug.
+        In stub mode the replies come from a local inbox file rather than
+        from Slack (see inbox_path) — written by scripts/slack_reply.py,
+        shaped like Slack's own messages. That is what makes the whole
+        round trip, alert out and human confirmation back, runnable with
+        no workspace. It is a local simulation of the Slack side and is
+        labelled as one; nothing here pretends a message was received
+        from Slack.
         """
         if not incident.slack_channel or not incident.slack_ts:
             return []
         if self.mode == "stub":
-            return []
+            return [entry for entry in self._read_inbox(incident) if "text" in entry]
         payload = {"channel": incident.slack_channel, "ts": incident.slack_ts}
         data = self._call("conversations.replies", payload, incident.incident_id)
         return data.get("messages", [])
 
     def get_reactions(self, incident: Incident) -> list[dict]:
-        """reactions.get on the parent message. Same stub-mode limitation
+        """reactions.get on the parent message. Reads the same stub inbox
         as get_thread_replies — see its docstring."""
         if not incident.slack_channel or not incident.slack_ts:
             return []
         if self.mode == "stub":
-            return []
+            grouped: dict[str, list[str]] = {}
+            for entry in self._read_inbox(incident):
+                name = entry.get("reaction")
+                if name:
+                    grouped.setdefault(name, []).append(entry.get("user", "unknown"))
+            return [{"name": name, "users": users} for name, users in grouped.items()]
         payload = {"channel": incident.slack_channel, "timestamp": incident.slack_ts}
         data = self._call("reactions.get", payload, incident.incident_id)
         return data.get("message", {}).get("reactions", [])

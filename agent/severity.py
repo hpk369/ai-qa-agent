@@ -2,9 +2,10 @@
 Deterministic severity classification for the ETL Production Support Triage Agent.
 
 Thresholds live in config/severity.yml, never in code. This module reads
-that config and classifies a dict of observed signals against it. The
-Claude agent reports signals; it does not decide severity itself — the
-same evidence must always yield the same call. See agent/prompts.py.
+that config and classifies a dict of observed signals against it.
+Whatever produced the signals — logsets/triage.py reading log text, or
+anything else — reports observations only; severity is decided here, so
+the same evidence always yields the same call.
 """
 
 from __future__ import annotations

@@ -1,0 +1,41 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest + pyflakes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyflakes
+
+      - name: Run the test suite
+        # No credentials, no network, no services: the suite runs the
+        # deterministic fallbacks and a local HTTP server for the provider
+        # adapter. If this ever needs a secret, something has regressed.
+        run: pytest tests/pytest -q
+
+      - name: Lint for dead code and unused imports
+        run: pyflakes agent logsets scripts tests/pytest

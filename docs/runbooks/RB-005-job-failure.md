@@ -31,12 +31,11 @@ downstream job being delayed.
 2. If `target_unavailable`: confirm whether the target table/service is
    actually unreachable versus merely slow —
    ```bash
-   curl -s -X POST http://localhost:8000/tools/sql_validator \
-     -H 'Content-Type: application/json' \
-     -d '{"source_table":"src.transactions","target_table":"tgt.transactions"}'
+   nc -zv <target-host> <port>          # is anything listening at all
+   psql -h <target-host> -c 'SELECT 1'  # does it answer a trivial query
    ```
-   A connection-refused/timeout here (vs. a normal JSON response with a
-   row-count issue) confirms genuine unavailability rather than a data
+   A connection-refused/timeout here (vs. a slow but successful response)
+   confirms genuine unavailability rather than a data
    quality problem being misclassified.
 
 3. If `control_total_mismatch`: re-run the Recon Checker's control-total

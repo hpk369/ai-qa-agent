@@ -27,32 +27,32 @@ three downstream reporting jobs cannot start" — not the Spark stage name.
    ```
    Confirms the magnitude of the shortfall and which check first saw it.
 
-2. Re-run the Recon Checker directly against the tool server to confirm the
-   shortfall is still present (not already self-corrected by a retry):
+2. Read the reconciliation line the alert fired on, in context — the lines
+   around it usually name the stage that dropped the rows:
    ```bash
-   curl -s -X POST http://localhost:8000/tools/sql_validator \
-     -H 'Content-Type: application/json' \
-     -d '{"source_table":"src.transactions","target_table":"tgt.transactions"}' | jq
-   ```
-   A `row_drop_pct` near zero here means the load has already recovered —
-   downgrade or resolve rather than remediate.
-
-3. Reproduce locally against the mock pipeline (useful when investigating the
-   detection logic itself, not a live incident):
-   ```bash
-   INJECT_FAILURE=row_drop python mock_pipeline/producer.py
+   grep -n -B5 -A5 'Row count reconciliation failed' reports/logsets/<session_id>/*.log
    ```
 
-4. Run the targeted unit tests to confirm the Recon Checker's own logic isn't
-   the thing that's wrong (a false positive):
+3. Re-run the count against the live tables to confirm the shortfall is still
+   present rather than already self-corrected by a retry:
+   ```sql
+   SELECT (SELECT count(*) FROM src.transactions) AS source_rows,
+          (SELECT count(*) FROM tgt.transactions) AS target_rows;
+   ```
+   Counts that now agree mean the load recovered — downgrade or resolve
+   rather than remediate.
+
+4. Re-read the whole log set the alert came from, including everything the
+   catalogue did *not* recognise:
    ```bash
-   pytest tests/pytest/test_sql_validator.py -v
+   python scripts/logset.py --show <session_id>
    ```
 
-5. Check the evidence bundle collected at incident open for the job
-   log and target DDL:
+5. Reproduce the detection path itself, when the question is whether the
+   check is right rather than what the pipeline did:
    ```bash
-   cat reports/evidence/<incident_id>/manifest.json
+   python scripts/logset.py --seed <seed> --no-slack
+   pytest tests/pytest/test_logsets.py -v
    ```
 
 ## Remediation options
