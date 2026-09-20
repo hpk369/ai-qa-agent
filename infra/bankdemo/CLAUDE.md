@@ -1,5 +1,11 @@
 # CLAUDE.md — infra/bankdemo (Track B)
 
+> **DROPPED — 2026-09-20.** The real Hadoop stack this document specifies is not being
+> built. See [`ROADMAP.md`](../../ROADMAP.md) §0 for the reasoning. The project's scope is
+> now one loop: a set of logs in, a Slack alert out, and the logs behind it downloadable
+> (`logsets/`, `scripts/logset.py`). This file is kept as a record of the design decisions,
+> not as work to do.
+
 Scoped rules for everything under `infra/bankdemo/`. The repo-wide rules in
 `/IMPLEMENTATION.md` §0 ("Ground rules") still apply; where the two disagree, this
 file wins **inside this directory only**.

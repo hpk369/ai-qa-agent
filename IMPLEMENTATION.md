@@ -1,5 +1,11 @@
 # IMPLEMENTATION.md — Execution spec for Claude Code
 
+> **PARTLY SUPERSEDED — 2026-09-20.** Phases 0–1 were built and still stand. Phase 2 onward
+> (the Hadoop stack) is **dropped**, not pending — see [`ROADMAP.md`](ROADMAP.md) §0. The
+> project's scope is now the log-set path in `logsets/`: a set of logs in, a Slack alert out,
+> and the logs behind it downloadable. Read this file for how Phases 0–1 were specified and
+> why; do not execute Phase 2 onward.
+
 **Repository:** `hpk369/ai-qa-agent`
 **Companion document:** `expansion-plan.md` (strategy and rationale — read it, but this file is the source of truth for what to build)
 **Objective:** convert an AI QA automation demo into an ETL production support triage system running on a Hadoop stack, with Slack as the incident channel.

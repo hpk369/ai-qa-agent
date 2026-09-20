@@ -1,5 +1,11 @@
 # bankdemo — Implementation Guide (Track B substrate)
 
+> **DROPPED — 2026-09-20.** The real Hadoop stack this document specifies is not being
+> built. See [`ROADMAP.md`](../../ROADMAP.md) §0 for the reasoning. The project's scope is
+> now one loop: a set of logs in, a Slack alert out, and the logs behind it downloadable
+> (`logsets/`, `scripts/logset.py`). This file is kept as a record of the design decisions,
+> not as work to do.
+
 A phase-by-phase specification for building an on-demand, incident-generating
 Hadoop banking stack on one Oracle Cloud Always Free VM. Written to be executed by
 Claude Code, with human checkpoints marked **[HUMAN]**.

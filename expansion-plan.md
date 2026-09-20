@@ -1,5 +1,10 @@
 # Expansion Plan — `ai-qa-agent` → Production Support Triage on a Hadoop Stack
 
+> **PARTLY SUPERSEDED — 2026-09-20.** The repositioning argument in §1–§4 is still the
+> project's rationale and still worth reading. **Track B (§5–§6, the Hadoop stack) is
+> dropped** — see [`ROADMAP.md`](ROADMAP.md) §0. The agent now reads real Hadoop, Spark, HDFS
+> and ZooKeeper *logs* from a public corpus instead of running the cluster that produces them.
+
 **Repo:** https://github.com/hpk369/ai-qa-agent
 **Author:** Harsh Keshruwala
 **Purpose of this document:** define the two-track expansion that repositions this project from a QA automation demo into a production support artifact aligned with Application Support Analyst roles at banks (Citi C11 Apps Support Intermediate Analyst as the reference JD).
