@@ -25,7 +25,8 @@ The pieces behind that loop:
 | Slack Web API client, Block Kit messages, HMAC verification | `agent/slack_client.py`, `agent/slack_blocks.py`, `agent/slack_verify.py` |
 | Five runbooks, deterministically selected | `agent/runbooks.py`, `docs/runbooks/` |
 | Live stream, backpressure, the resolution gate | `logsets/stream.py` |
-| Claude: alert narration and resolution judgement | `agent/llm.py` |
+| Alert narration and resolution judgement | `agent/llm.py` |
+| Model providers: Claude, Ollama, any OpenAI-compatible endpoint | `agent/providers.py` |
 | Entry points | `scripts/logset.py`, `scripts/stream.py`, `scripts/slack_reply.py`, `POST /logset/run`, `GET /logset/{id}/download` |
 
 **Slack runs in stub mode by default.** `SLACK_MODE=stub` writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path — parent message, thread reply, P1 mirror, button interactions — runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post into a real workspace; [`docs/SLACK_SETUP.md`](docs/SLACK_SETUP.md) walks through obtaining each value.
@@ -185,7 +186,7 @@ Lines arrive continuously and the agent tails them, so an alert fires **at the f
 [   60.0s] ■ completed — 1408 lines, 2 incident(s)
 ```
 
-(The transcript above is a run with `ANTHROPIC_API_KEY` set — the alert paragraph and the two 🤖 lines are Claude's. Without a key those come from the deterministic fallbacks, which is what the test suite exercises.)
+(The alert paragraph and the two 🤖 lines above come from whichever model is configured — see [the model layer](#the-model-layer). With none configured they come from the deterministic fallbacks, which is what the test suite exercises.)
 
 Three things can release the gate, and a model being reachable is only one of them:
 
@@ -207,24 +208,51 @@ Everything downstream treats those exactly as real thread activity: the gate pol
 
 A stream writes into the same layout as a batch log set, so `--show`, `GET /logset/{id}` and the download endpoint all work on it unchanged.
 
-## Where Claude is used
+## The model layer
 
 Two calls, both in [`agent/llm.py`](agent/llm.py), both chosen because the judgement is genuinely linguistic:
 
-**1. Narrating the alert.** Log lines are precise and unreadable. Claude turns the matched lines and derived signals into the paragraph a woken-up engineer reads first: business impact, likely root cause, next action. It is told the severity and told not to revisit it.
+**1. Narrating the alert.** Log lines are precise and unreadable. The model turns the matched lines and derived signals into the paragraph a woken-up engineer reads first: business impact, likely root cause, next action. It is told the severity and told not to revisit it.
 
 **2. Judging whether a Slack reply confirms resolution.** This is what releases a blocked stream, and no regex settles it — "should be fine after the next run" is not a confirmation, "namenode is back up, writes are succeeding" is.
 
-What Claude is deliberately **not** asked: severity, runbook selection, or whether an incident opens at all. Those stay in `agent/severity.py` and `agent/runbooks.py`, where the same evidence always produces the same answer and `matched_conditions` says exactly why. A model that occasionally calls the same evidence P2 and P3 is not something you can run an on-call rota against.
+What the model is deliberately **not** asked: severity, runbook selection, or whether an incident opens at all. Those stay in `agent/severity.py` and `agent/runbooks.py`, where the same evidence always produces the same answer and `matched_conditions` says exactly why. A model that occasionally calls the same evidence P2 and P3 is not something you can run an on-call rota against.
 
-**Every call degrades instead of failing.** No API key, no SDK, a rate limit, a timeout, a malformed response — each returns the deterministic text the code had before, tagged `fallback` so the output tells you which one you are reading. An alert that reads flatter is fine; an incident that fails to open because an API call failed is not. The resolution judge fails *closed*: an unreachable model leaves the stream paused, never resumes it.
+### Any model, including free ones
+
+Neither call needs a frontier model — they are a short paragraph and a yes/no. [`agent/providers.py`](agent/providers.py) resolves whatever is configured:
+
+| Option | Cost | Setup |
+|---|---|---|
+| **Ollama** (or llama.cpp, LM Studio, vLLM) on your own machine | free | `ollama serve && ollama pull llama3.2` — auto-detected on `localhost:11434`, nothing to configure |
+| **Groq**, **OpenRouter**, **Together**, **Fireworks**, **DeepSeek**, **Gemini** (OpenAI-compatible endpoint) | free tiers available | set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` |
+| **Claude API** | paid — no free model; Haiku 4.5 is the cheapest at $1/$5 per million tokens | set `ANTHROPIC_API_KEY` |
+| **Nothing** | free | deterministic fallbacks, and the output says so |
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # turns both calls on
-LLM_MODE=off python scripts/stream.py # forces the deterministic path
+# A local model — free, no key, no account
+ollama pull llama3.2
+python scripts/stream.py                       # prints: Model: ollama (llama3.2)
+
+# Any hosted OpenAI-compatible endpoint (Groq shown; OpenRouter, Together, … identical)
+export LLM_BASE_URL=https://api.groq.com/openai/v1
+export LLM_MODEL=llama-3.3-70b-versatile
+export LLM_API_KEY=gsk_...
+
+# Claude
+export ANTHROPIC_API_KEY=sk-ant-...
+export AGENT_MODEL=claude-opus-5
+
+LLM_PROVIDER=off python scripts/stream.py      # force the deterministic path
 ```
 
-Model: `claude-opus-5` by default (`AGENT_MODEL`), called with structured outputs so the response is a validated object rather than prose to parse.
+`LLM_PROVIDER=auto` (the default) takes the first of: a configured `LLM_BASE_URL`, an `ANTHROPIC_API_KEY`, a local Ollama that answers. Pin it with `anthropic`, `openai`, `ollama` or `off`.
+
+**Worth knowing before you pick.** This workload is about 1,700 input and 280 output tokens per incident — on Haiku 4.5 that is roughly a third of a cent, so the case for a free model here is zero setup cost and no account, not the bill.
+
+**Structured output is negotiated, not assumed.** The OpenAI-compatible adapter asks for a JSON schema first; when an endpoint rejects that (many local servers do) it retries in plain JSON mode with the schema inlined in the prompt, strips the code fences and chat that small models wrap answers in, and validates against the schema itself. Anything that still doesn't validate counts as a failed call — never a half-parsed object.
+
+**Every call degrades instead of failing.** No provider, a rate limit, a timeout, a malformed response — each returns the deterministic text the code had before, tagged with the provider that produced it (`narrated by ollama`, `narrated by fallback`) so the output tells you which you are reading. An alert that reads flatter is fine; an incident that fails to open because an inference call failed is not. The resolution judge fails *closed*: an unreachable model leaves the stream paused, never resumes it.
 
 ## Quick Start
 
@@ -235,7 +263,7 @@ python scripts/logset.py         # batch: mix, triage, alert, print the download
 python scripts/stream.py         # live: stream logs, alert as they arrive, block on P1/P2
 ```
 
-No API key, no containers, no Slack workspace needed for either. The alert lands in `reports/slack/`, the log set and its zip in `reports/logsets/`. Set `ANTHROPIC_API_KEY` to turn on the Claude layer.
+No API key, no containers, no Slack workspace needed for either. The alert lands in `reports/slack/`, the log set and its zip in `reports/logsets/`. Point it at a model — [a local Ollama, a free hosted endpoint, or Claude](#any-model-including-free-ones) — and it writes the alerts and judges the Slack replies too.
 
 ## Demo: the incident lifecycle
 
@@ -268,9 +296,9 @@ python scripts/incident_metrics.py
 
 ```bash
 pip install -r requirements.txt
-pytest tests/pytest/ -v          # 243 tests, nothing touches the network
+pytest tests/pytest/ -v          # 262 tests, nothing touches the network
 pytest tests/pytest/test_logsets.py -v
-pytest tests/pytest/test_stream.py tests/pytest/test_llm.py -v
+pytest tests/pytest/test_stream.py tests/pytest/test_llm.py tests/pytest/test_providers.py -v
 ```
 
 ## Project Structure
@@ -284,7 +312,8 @@ ai-qa-agent/
 │                           #   (stream.py)
 ├── agent/                  # Severity classifier, incident record + lifecycle,
 │                           #   Slack client/blocks/verify, runbook selection,
-│                           #   the Claude layer (llm.py), and the HTTP server
+│                           #   the model layer (llm.py + providers.py), and the
+│                           #   HTTP server
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's contract
 ├── scripts/                # logset.py, stream.py, slack_reply.py, fetch_logs.py,
@@ -309,6 +338,9 @@ Because the mixer knows the answer and the agent must not. Everything the triage
 **Why is Slack a view rather than the source of truth?**
 The incident record on disk (`schemas/incident.schema.json`) is the system of record. Slack is where humans see it and act on it, so every Slack failure is logged loudly and never raised: a run that correctly opened an incident must not fail because Slack was unreachable. `post_incident()` writes the returned `ts`/`channel` back onto the incident and re-persists in the same call, so there is never a posted message with no record behind it.
 
+**Why is the model layer provider-neutral?**
+The two calls are a short paragraph and a yes/no — they do not need a frontier model, and tying them to one would mean anyone running this needs a paid account before they see it work. One adapter speaks the OpenAI protocol, which covers a local Ollama, a llama.cpp server, vLLM, and every hosted free tier; a second adapter covers Claude. Swapping providers is three environment variables, and the deterministic fallbacks mean no provider at all is a supported configuration rather than a broken one.
+
 **Why is the corpus fetched rather than vendored?**
 The LogHub datasets are third-party research data. Fetching them at setup keeps the repository small and the provenance honest — and the generated fallback means a clone with no network still produces complete log sets, with each file's origin recorded in the manifest.
 
@@ -323,5 +355,5 @@ The LogHub datasets are third-party research data. Fetching them at setup keeps 
 | Incident record | JSON Schema-validated records on disk, full lifecycle + approval gate (`agent/incident.py`) |
 | HTTP server | FastAPI — log-set endpoints and Slack's interactivity endpoint |
 | Notifications | Slack bot-token app (`agent/slack_client.py`) — threaded, editable in place, Block Kit. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required |
-| Narration & resolution judgement | Claude (`claude-opus-5`) via the Anthropic SDK, structured outputs, deterministic fallbacks |
-| Testing | pytest 8.x — 243 tests, no network, no services |
+| Narration & resolution judgement | Any model — local Ollama/llama.cpp, a free hosted OpenAI-compatible endpoint, or Claude — with schema-validated output and deterministic fallbacks |
+| Testing | pytest 8.x — 262 tests, no network, no services |

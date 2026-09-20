@@ -60,9 +60,12 @@ def stub_dir(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_llm(monkeypatch):
-    """Default to no model, as a clone with no API key has."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    """Default to no model, as a fresh clone has."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "LLM_BASE_URL",
+                 "LLM_MODEL", "LLM_API_KEY", "LLM_PROVIDER", "LLM_MODE"):
+        monkeypatch.delenv(name, raising=False)
+    from agent import providers
+    monkeypatch.setattr(providers, "_ollama_running", lambda host=None: False)
 
 
 @pytest.fixture
@@ -257,8 +260,11 @@ def test_auto_resolve_releases_an_unattended_demo(root):
     assert result["outcome"] == "completed"
 
 
-def test_the_gate_uses_claudes_judgement_when_it_is_available(root, stub_dir, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+def test_the_gate_uses_the_models_judgement_when_one_is_configured(root, stub_dir, monkeypatch):
+    """Whichever provider is configured — Claude, a local Ollama, a free
+    hosted endpoint — the gate treats its verdict the same way."""
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("LLM_MODEL", "llama3.2")
     seen = {}
 
     def fake_judge(summary, replies):
@@ -267,7 +273,7 @@ def test_the_gate_uses_claudes_judgement_when_it_is_available(root, stub_dir, mo
         return LLMResult(
             ResolutionJudgement(resolved=True, confidence=0.95,
                                 reason='"the backfill completed" states recovery'),
-            "claude")
+            "ollama")
 
     monkeypatch.setattr(llm, "judge_resolution", fake_judge)
 
@@ -280,7 +286,7 @@ def test_the_gate_uses_claudes_judgement_when_it_is_available(root, stub_dir, mo
         on_event=reply)
 
     judgement = next(e for e in events if e.kind == "judgement")
-    assert judgement.payload["judged_by"] == "claude"
+    assert judgement.payload["judged_by"] == "ollama"
     assert result["outcome"] == "completed"
     assert seen["replies"] == ["the backfill completed"]
     # The judge is given the incident, not just the reply.
@@ -288,9 +294,8 @@ def test_the_gate_uses_claudes_judgement_when_it_is_available(root, stub_dir, mo
 
 
 def test_a_low_confidence_judgement_keeps_the_gate_shut(root, stub_dir, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setattr(llm, "judge_resolution", lambda summary, replies: LLMResult(
-        ResolutionJudgement(resolved=True, confidence=0.2, reason="might be fixed"), "claude"))
+        ResolutionJudgement(resolved=True, confidence=0.2, reason="might be fixed"), "ollama"))
 
     def reply(event):
         if event.kind == "blocked":

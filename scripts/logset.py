@@ -60,6 +60,8 @@ def _print_summary(result: dict) -> None:
               f"— {'approval required' if incident['requires_approval'] else 'no approval gate'}")
         print(f"Rationale {incident['severity_rationale']}")
         print(f"Runbook   {incident['runbook'] or 'none'}")
+        print(f"Summary   {incident['impact_summary']}")
+        print(f"          (written by {result.get('narrated_by', 'fallback')})")
         if incident.get("slack_ts"):
             print(f"Slack     posted to {incident['slack_channel']} (ts {incident['slack_ts']})")
         else:

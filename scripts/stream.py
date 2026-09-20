@@ -20,11 +20,12 @@ problem is fixed — in SLACK_MODE=stub, that is:
 
     python scripts/slack_reply.py <incident-id> "restarted the consumer, lag is draining"
 
-Claude decides whether a reply actually confirms resolution ("looking
-into it" does not). With no ANTHROPIC_API_KEY the check falls back to a
-narrow keyword match, and the gate stays shut on anything it does not
-recognise outright — a ✅ reaction (`--react white_check_mark`) always
-works.
+A model decides whether a reply actually confirms resolution ("looking
+into it" does not) — Claude, a local Ollama, or any OpenAI-compatible
+endpoint; see LLM_PROVIDER in .env.example. With none configured the
+check falls back to a narrow keyword match, and the gate stays shut on
+anything it does not recognise outright — a ✅ reaction
+(`--react white_check_mark`) always works.
 """
 
 from __future__ import annotations
@@ -62,8 +63,8 @@ def render(event: StreamEvent) -> None:
         print(f"            {payload['impact_summary']}")
         print(f"            signatures: {', '.join(payload['signatures']) or 'none'}"
               f"   runbook: {payload.get('runbook') or 'none'}")
-        if payload.get("narrated_by") == "fallback" and payload.get("narration_detail"):
-            print(f"            (written without Claude — {payload['narration_detail']})")
+        if payload.get("narrated_by") == "fallback":
+            print("            (deterministic summary — no model configured or the call failed)")
     elif event.kind == "blocked":
         print("            the pipeline is held here until someone confirms it is fixed:")
         print(f"            {event.payload['reply_with']}")
@@ -86,6 +87,9 @@ def main() -> int:
     parser.add_argument("--max-block-wait", type=float, default=600.0,
                         help="stop the stream if an incident stays unresolved this long "
                              "(default: 600)")
+    parser.add_argument("--block-on", default="P1,P2",
+                        help="severities that stop the stream until confirmed "
+                             "(default: P1,P2; use P1,P2,P3,P4 to demo the gate on anything)")
     parser.add_argument("--poll", type=float, default=3.0,
                         help="how often to check Slack while blocked (default: 3s)")
     parser.add_argument("--real-background", action="store_true",
@@ -97,6 +101,8 @@ def main() -> int:
     args = parser.parse_args()
 
     config = StreamConfig(
+        blocking_severities=frozenset(
+            level.strip().upper() for level in args.block_on.split(",") if level.strip()),
         rate=args.rate,
         duration=None if args.duration == 0 else args.duration,
         incident_gap=(args.gap[0], args.gap[1]),
@@ -105,7 +111,7 @@ def main() -> int:
         max_block_wait=args.max_block_wait,
     )
 
-    print(f"Claude: {'on' if llm.available() else 'off — deterministic fallbacks in use'}")
+    print(f"Model: {llm.describe()}")
     runner = StreamRunner(
         config=config,
         sources=args.sources.split(",") if args.sources else None,

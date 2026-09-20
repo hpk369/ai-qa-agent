@@ -1,10 +1,14 @@
 """
-Tests for agent.llm — the Claude layer.
+Tests for agent.llm — the model layer.
 
 No network: the single seam every call goes through (``_parse``) is
 monkeypatched, so these cover what the code does with a model's answer,
-not the model itself. The fallbacks are tested for real, because they are
-what runs whenever there is no API key — including in this suite.
+not the model itself, and not which provider served it. The fallbacks
+are tested for real, because they are what runs whenever no provider is
+configured — including in this suite.
+
+agent/providers.py (which provider gets picked, and the wire format) is
+tested separately in test_providers.py.
 """
 
 import os
@@ -19,10 +23,20 @@ from agent.llm import Narration, ResolutionJudgement
 
 
 @pytest.fixture(autouse=True)
-def no_real_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(llm, "LLM_MODE", "auto")
+def no_provider(monkeypatch):
+    """A clone with nothing configured — the default everywhere."""
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "LLM_BASE_URL",
+                 "LLM_MODEL", "LLM_API_KEY", "LLM_MODE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "auto")
+    monkeypatch.setattr(llm.providers, "_ollama_running", lambda host=None: False)
+
+
+@pytest.fixture
+def local_model(monkeypatch):
+    """A configured OpenAI-compatible endpoint — an Ollama, say."""
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("LLM_MODEL", "llama3.2")
 
 
 FINDINGS = [{
@@ -35,19 +49,19 @@ FINDINGS = [{
 
 # ---------- availability ----------
 
-def test_not_available_without_credentials():
+def test_not_available_without_a_provider():
+    assert llm.available() is False
+    assert "deterministic" in llm.describe()
+
+
+def test_not_available_when_switched_off(monkeypatch, local_model):
+    monkeypatch.setenv("LLM_PROVIDER", "off")
     assert llm.available() is False
 
 
-def test_not_available_when_switched_off(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    monkeypatch.setattr(llm, "LLM_MODE", "off")
-    assert llm.available() is False
-
-
-def test_available_with_a_key(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+def test_available_with_a_local_model(local_model):
     assert llm.available() is True
+    assert "llama3.2" in llm.describe()
 
 
 # ---------- narration ----------
@@ -61,8 +75,7 @@ def test_narration_falls_back_to_the_deterministic_summary():
     assert result.value.recommended_action
 
 
-def test_narration_uses_claudes_text_when_available(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+def test_narration_uses_the_models_text_when_available(monkeypatch, local_model):
     captured = {}
 
     def fake_parse(system, prompt, schema, effort):
@@ -75,7 +88,8 @@ def test_narration_uses_claudes_text_when_available(monkeypatch):
     result = llm.narrate("P1", {"target_unavailable": True}, FINDINGS,
                          ["ERROR No space left on device"], "deterministic summary")
 
-    assert result.source == "claude"
+    assert result.source == "openai-compatible"   # whichever provider served it
+    assert result.from_model
     assert result.value.impact_summary.startswith("Settlement feed")
     # The model is told the severity, and told not to revisit it.
     assert "P1" in captured["prompt"]
@@ -85,9 +99,7 @@ def test_narration_uses_claudes_text_when_available(monkeypatch):
     assert captured["schema"] is Narration
 
 
-def test_narration_falls_back_when_the_call_fails(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
+def test_narration_falls_back_when_the_call_fails(monkeypatch, local_model):
     def boom(*args, **kwargs):
         raise RuntimeError("rate limited")
 
@@ -98,15 +110,16 @@ def test_narration_falls_back_when_the_call_fails(monkeypatch):
     assert "rate limited" in result.detail
 
 
-def test_failure_detail_never_carries_the_api_key(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-supersecret")
+@pytest.mark.parametrize("variable", ["ANTHROPIC_API_KEY", "LLM_API_KEY"])
+def test_failure_detail_never_carries_an_api_key(monkeypatch, local_model, variable):
+    monkeypatch.setenv(variable, "sk-supersecret")
 
     def boom(*args, **kwargs):
-        raise RuntimeError("401 unauthorized for key sk-ant-supersecret")
+        raise RuntimeError("401 unauthorized for key sk-supersecret")
 
     monkeypatch.setattr(llm, "_parse", boom)
     result = llm.narrate("P2", {}, FINDINGS, [], "summary")
-    assert "sk-ant-supersecret" not in result.detail
+    assert "sk-supersecret" not in result.detail
     assert "***REDACTED***" in result.detail
 
 
@@ -139,8 +152,7 @@ def test_fallback_judge_releases_on_an_outright_confirmation(text):
     assert "keyword match" in result.value.reason
 
 
-def test_judge_uses_claude_when_available(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+def test_judge_uses_the_model_when_available(monkeypatch, local_model):
     captured = {}
 
     def fake_parse(system, prompt, schema, effort):
@@ -154,17 +166,15 @@ def test_judge_uses_claude_when_available(monkeypatch):
         {"user": "U1", "text": "restarted it, lag is draining"},
     ])
 
-    assert result.source == "claude"
+    assert result.from_model
     assert result.value.resolved is True
     # The whole thread goes in, not just the newest line — context decides this.
     assert "looking" in captured["prompt"] and "lag is draining" in captured["prompt"]
     assert captured["schema"] is ResolutionJudgement
 
 
-def test_judge_fails_closed_when_the_call_fails(monkeypatch):
+def test_judge_fails_closed_when_the_call_fails(monkeypatch, local_model):
     """An unreachable model must never resume a blocked pipeline."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
     def boom(*args, **kwargs):
         raise RuntimeError("connection reset")
 
@@ -173,52 +183,3 @@ def test_judge_fails_closed_when_the_call_fails(monkeypatch):
     assert result.value.resolved is False
     assert result.value.confidence == 0.0
     assert "staying paused" in result.value.reason
-
-
-def test_a_refusal_is_treated_as_a_failure(monkeypatch):
-    """_parse raises on a refusal, so the caller takes the fallback."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
-    class FakeResponse:
-        stop_reason = "refusal"
-        stop_details = {"category": "cyber"}
-        parsed_output = Narration(impact_summary="x", root_cause="y", recommended_action="z")
-
-    class FakeMessages:
-        def parse(self, **kwargs):
-            return FakeResponse()
-
-    class FakeClient:
-        messages = FakeMessages()
-
-    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
-    result = llm.narrate("P1", {}, FINDINGS, [], "deterministic summary")
-    assert result.source == "fallback"
-    assert "declined" in result.detail
-
-
-def test_parse_sends_the_documented_request_shape(monkeypatch):
-    """Model id, structured output format, and effort all reach the SDK."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    captured = {}
-
-    class FakeMessages:
-        def parse(self, **kwargs):
-            captured.update(kwargs)
-
-            class Response:
-                stop_reason = "end_turn"
-                parsed_output = ResolutionJudgement(resolved=False, confidence=0.1, reason="no")
-            return Response()
-
-    class FakeClient:
-        messages = FakeMessages()
-
-    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
-    llm.judge_resolution("INC-1", [{"user": "U1", "text": "hmm"}])
-
-    assert captured["model"] == llm.MODEL
-    assert captured["output_format"] is ResolutionJudgement
-    assert captured["output_config"] == {"effort": "low"}
-    assert captured["messages"][0]["role"] == "user"
-    assert captured["max_tokens"] == llm.MAX_TOKENS

@@ -59,6 +59,7 @@ from logsets.triage import (
     alert_slack,
     build_incident,
     logset_summary,
+    narrate_incident,
     scan_lines,
 )
 
@@ -339,21 +340,8 @@ class StreamRunner:
         if incident is None:
             return None
 
-        narration = llm.narrate(
-            severity=incident.severity,
-            signals=window["signals"],
-            findings=window["findings"],
-            log_lines=window["context"],
-            default_summary=incident.impact_summary,
-            source_label=f"live stream {self.session_id}",
-        )
-        incident.impact_summary = narration.value.impact_summary
-        incident.root_cause = narration.value.root_cause
-        incident.recommended_action = (
-            f"{narration.value.recommended_action} "
-            f"Runbook: `{incident.runbook}`." if incident.runbook
-            else narration.value.recommended_action
-        )
+        narrated_by = narrate_incident(incident, window, context_lines=window["context"],
+                                       source_label=f"live stream {self.session_id}")
 
         from agent.incident import persist
 
@@ -362,7 +350,7 @@ class StreamRunner:
             "incident_id": incident.incident_id,
             "severity": incident.severity,
             "at": round(self.clock.now() - self.started_at, 2),
-            "narrated_by": narration.source,
+            "narrated_by": narrated_by,
             "signatures": [f["signature_id"] for f in window["findings"]],
         })
 
@@ -373,8 +361,7 @@ class StreamRunner:
             "incident_id": incident.incident_id,
             "severity": incident.severity,
             "impact_summary": incident.impact_summary,
-            "narrated_by": narration.source,
-            "narration_detail": narration.detail,
+            "narrated_by": narrated_by,
             "runbook": incident.runbook,
             "signatures": [f["signature_id"] for f in window["findings"]],
         })
@@ -517,7 +504,7 @@ class StreamRunner:
                                f"{self.config.rate:g} lines/s", {
             "session_id": self.session_id, "seed": self.seed,
             "sources": [s.name for s in self.sources],
-            "llm": "claude" if llm.available() else "fallback",
+            "llm": llm.describe(),
         })
 
         while True:

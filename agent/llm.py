@@ -1,5 +1,5 @@
 """
-The Claude layer — the two judgements in this system that are genuinely
+The model layer — the two judgements in this system that are genuinely
 linguistic, and nothing else.
 
 1. ``narrate()`` turns an incident's matched log lines into the prose a
@@ -14,17 +14,22 @@ linguistic, and nothing else.
    maybe. No regex settles that, and on a streaming pipeline the answer
    decides whether the stream starts moving again.
 
-What Claude is deliberately *not* asked to do: decide severity, pick a
+What the model is deliberately *not* asked to do: decide severity, pick a
 runbook, or decide whether an incident opens at all. Those stay in
 agent/severity.py and agent/runbooks.py, where the same evidence always
 produces the same answer and `matched_conditions` says exactly why.
 
-Every call degrades instead of failing. No API key, no SDK installed, a
-rate limit, a timeout, a malformed response — each returns the
-deterministic fallback the rest of the code already had, marked
-``source="fallback"`` so the caller can tell the difference. An alert
-that reads a little flatter is fine; an incident that fails to open
-because an API call failed is not.
+Neither call needs a frontier model, so neither is tied to one.
+agent/providers.py resolves whatever is configured — Claude, a local
+Ollama or llama.cpp server, or a hosted free tier speaking the
+OpenAI protocol — and this module only asks it for a validated object.
+
+Every call degrades instead of failing. No provider configured, a rate
+limit, a timeout, a response that doesn't match the schema — each
+returns the deterministic fallback the rest of the code already had,
+marked ``source="fallback"`` so the caller can tell the difference. An
+alert that reads a little flatter is fine; an incident that fails to
+open because an inference call failed is not.
 """
 
 from __future__ import annotations
@@ -35,15 +40,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
-MAX_TOKENS = 2000
-
-# auto: use Claude when a key is present, fall back silently when not.
-# off:  never call out, always use the deterministic text.
-LLM_MODE = os.getenv("LLM_MODE", "auto").lower()
+from agent import providers
+from agent.providers import Provider, ProviderError
 
 # How many log lines of context each call gets. Enough to reason from,
-# small enough to keep a per-incident call cheap and fast.
+# small enough to keep a per-incident call cheap and fast — and small
+# enough for a 3B model running on a laptop.
 MAX_CONTEXT_LINES = 40
 
 
@@ -78,57 +80,55 @@ class ResolutionJudgement(BaseModel):
 @dataclass
 class LLMResult:
     """A value plus where it came from, so callers never have to guess
-    whether Claude actually ran."""
+    whether a model actually ran — and which one."""
 
     value: Any
-    source: str  # "claude" | "fallback"
+    source: str  # the provider's name ("anthropic", "ollama", ...) or "fallback"
     detail: str = ""
 
     @property
-    def from_claude(self) -> bool:
-        return self.source == "claude"
+    def from_model(self) -> bool:
+        return self.source != "fallback"
+
+
+def provider() -> Provider | None:
+    """Whichever provider the environment resolves to, or None."""
+    return providers.resolve()
 
 
 def available() -> bool:
-    """True when a Claude call would actually be attempted."""
-    if LLM_MODE == "off":
-        return False
-    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-        return False
-    import importlib.util
-
-    return importlib.util.find_spec("anthropic") is not None
+    """True when an inference call would actually be attempted."""
+    return providers.resolve() is not None
 
 
-def _client():
-    import anthropic
-
-    return anthropic.Anthropic()
+def describe() -> str:
+    """One line naming the provider and model in use."""
+    return providers.describe()
 
 
 def _parse(system: str, prompt: str, schema: type[BaseModel], effort: str):
-    """One structured-output call. Raises; callers handle the fallback."""
-    response = _client().messages.parse(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        system=system,
-        output_config={"effort": effort},
-        messages=[{"role": "user", "content": prompt}],
-        output_format=schema,
-    )
-    if response.stop_reason == "refusal":
-        raise RuntimeError(f"model declined: {getattr(response, 'stop_details', None)}")
-    return response.parsed_output
+    """One structured-output call against the resolved provider. Raises;
+    callers handle the fallback."""
+    active = providers.resolve()
+    if active is None:
+        raise ProviderError("no provider configured")
+    return active.complete_json(system, prompt, schema, effort)
 
 
 def _describe_exception(exc: Exception) -> str:
-    """Never let an API key or a token reach a log line or a Slack message."""
+    """Never let an API key reach a log line or a Slack message."""
     name = type(exc).__name__
     message = str(exc)
-    for secret in (os.getenv("ANTHROPIC_API_KEY"), os.getenv("ANTHROPIC_AUTH_TOKEN")):
+    for variable in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "LLM_API_KEY"):
+        secret = os.getenv(variable)
         if secret:
             message = message.replace(secret, "***REDACTED***")
     return f"{name}: {message[:200]}"
+
+
+def _source_name() -> str:
+    active = providers.resolve()
+    return active.name if active else "fallback"
 
 
 # ---------- 1. Narrating an incident ----------
@@ -182,7 +182,7 @@ def narrate(
     either way — from Claude, or the deterministic text."""
     fallback = _fallback_narration(signals, findings, default_summary)
     if not available():
-        return LLMResult(fallback, "fallback", "no API key" if LLM_MODE != "off" else "LLM_MODE=off")
+        return LLMResult(fallback, "fallback", "no model provider configured")
 
     matched = "\n".join(
         f"- {f['signature_id']} ({f['title']}) at {f['file']}:{f['line']}: {f['line_text']}"
@@ -199,8 +199,8 @@ def narrate(
     )
 
     try:
-        return LLMResult(_parse(NARRATE_SYSTEM, prompt, Narration, "medium"), "claude")
-    except Exception as exc:  # noqa: BLE001 - an alert must not depend on an API call
+        return LLMResult(_parse(NARRATE_SYSTEM, prompt, Narration, "medium"), _source_name())
+    except Exception as exc:  # noqa: BLE001 - an alert must not depend on an inference call
         return LLMResult(fallback, "fallback", _describe_exception(exc))
 
 
@@ -237,7 +237,7 @@ def judge_resolution(
 ) -> LLMResult:
     """Decide whether the thread confirms the incident is fixed.
 
-    With no Claude available this falls back to a deliberately narrow
+    With no provider available this falls back to a deliberately narrow
     keyword check — it recognises an explicit "resolved"/"fixed" and
     nothing more, because the safe failure here is to keep waiting.
     """
@@ -262,7 +262,7 @@ def judge_resolution(
                         if matched else "no reply states outright that the issue is fixed"),
             ),
             "fallback",
-            "no API key" if LLM_MODE != "off" else "LLM_MODE=off",
+            "no model provider configured",
         )
 
     prompt = (
@@ -270,7 +270,7 @@ def judge_resolution(
         f"Replies on its Slack thread, oldest first:\n{transcript or '(none yet)'}"
     )
     try:
-        return LLMResult(_parse(JUDGE_SYSTEM, prompt, ResolutionJudgement, "low"), "claude")
+        return LLMResult(_parse(JUDGE_SYSTEM, prompt, ResolutionJudgement, "low"), _source_name())
     except Exception as exc:  # noqa: BLE001 - a failed call must not resume the stream
         return LLMResult(
             ResolutionJudgement(resolved=False, confidence=0.0,
