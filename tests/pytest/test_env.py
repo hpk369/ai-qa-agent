@@ -130,7 +130,8 @@ def test_library_modules_never_load_the_env_file(module):
 
 
 @pytest.mark.parametrize("script", [
-    "scripts/logset.py", "scripts/stream.py", "scripts/slack_reply.py", "scripts/fetch_logs.py",
+    "scripts/logset.py", "scripts/stream.py", "scripts/slack_reply.py",
+    "scripts/fetch_logs.py", "scripts/check_credentials.py",
 ])
 def test_every_entry_point_loads_the_file(script):
     from pathlib import Path

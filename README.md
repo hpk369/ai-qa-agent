@@ -286,6 +286,17 @@ python scripts/stream.py
 
 Whichever you use, put a **spend limit** on it in the Console. On a few-dollars-a-year budget that is the control that actually protects you — against a leaked credential, and equally against a stream left running overnight.
 
+#### Checking it works
+
+```bash
+python scripts/check_credentials.py           # which credential will be used
+python scripts/check_credentials.py --live    # ...and make one small real call
+```
+
+`--live` sends a few tokens (a fraction of a cent) and prints the reply, which is also what completes the Console wizard's connection test. With federation it prints the rule, organization, service account and workspace in play — identifiers, not secrets, and printing them is what makes a misconfigured run diagnosable. `--expect "workload identity federation"` makes it fail unless that is genuinely what authenticated; the scheduled workflow runs exactly that.
+
+The JWT can reach it three ways: `ANTHROPIC_IDENTITY_TOKEN_FILE`, `ANTHROPIC_IDENTITY_TOKEN`, or the plain `JWT` variable the Console's own snippet reads — all three are recognised.
+
 #### The trap worth knowing
 
 Credentials resolve in a fixed order: `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_PROFILE` → federation variables → the active profile on disk. **A variable set to an empty string still wins its slot.** An exported `ANTHROPIC_API_KEY=""` — the shape a blank placeholder in `.env` produces — makes the SDK authenticate with an empty key instead of falling through to federation, and the failure reads like a broken federation setup rather than a stray variable.
@@ -405,7 +416,7 @@ ai-qa-agent/
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's contract
 ├── scripts/                # logset.py, stream.py, slack_reply.py, fetch_logs.py,
-│                           #   incident_metrics.py
+│                           #   incident_metrics.py, check_credentials.py
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
 │   └── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)

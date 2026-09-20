@@ -65,6 +65,12 @@ _WIF_TOKEN = ("ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_IDENTITY_TOKEN")
 # where there is no workload identity to federate.
 _CONFIG_DIR_ENV = "ANTHROPIC_CONFIG_DIR"
 
+# The Console's "Authenticate from your workload" snippet hands the JWT to
+# the SDK through a callable reading an environment variable (JWT by
+# default) rather than through ANTHROPIC_IDENTITY_TOKEN[_FILE]. Supporting
+# that shape means the snippet works here unchanged.
+_IDENTITY_TOKEN_ENV = os.getenv("ANTHROPIC_IDENTITY_TOKEN_ENV", "JWT")
+
 # output_config.effort is not accepted by every Claude model — Haiku 4.5 and
 # Sonnet 4.5 reject it with a 400. Sending it to them would fail every call,
 # so it is only included for the families that take it.
@@ -108,9 +114,13 @@ class AnthropicProvider:
     @staticmethod
     def federation_configured() -> bool:
         """Workload Identity Federation: no static secret, short-lived
-        tokens exchanged from a JWT the platform issues."""
-        return (all(os.getenv(name) for name in _WIF_REQUIRED)
-                and any(os.getenv(name) for name in _WIF_TOKEN))
+        tokens exchanged from a JWT the platform issues. The JWT may arrive
+        as a file, as ANTHROPIC_IDENTITY_TOKEN, or in the plain variable the
+        Console's snippet reads."""
+        if not all(os.getenv(name) for name in _WIF_REQUIRED):
+            return False
+        return bool(any(os.getenv(name) for name in _WIF_TOKEN)
+                    or os.getenv(_IDENTITY_TOKEN_ENV))
 
     @staticmethod
     def profile_configured() -> tuple[bool, str]:
@@ -154,6 +164,36 @@ class AnthropicProvider:
 
         return importlib.util.find_spec("anthropic") is not None
 
+    @classmethod
+    def explicit_federation_credentials(cls):
+        """Build WorkloadIdentityCredentials when the JWT lives in a plain
+        environment variable, which is how the Console's snippet passes it.
+
+        Returns None whenever the SDK's own detection already covers the
+        case — an identity token file or ANTHROPIC_IDENTITY_TOKEN — so the
+        zero-argument path stays the normal one.
+        """
+        if any(os.getenv(name) for name in _WIF_TOKEN):
+            return None
+        if not all(os.getenv(name) for name in _WIF_REQUIRED):
+            return None
+        token_env = _IDENTITY_TOKEN_ENV
+        if not os.getenv(token_env):
+            return None
+
+        from anthropic import WorkloadIdentityCredentials
+
+        kwargs = {
+            "identity_token_provider": lambda: os.environ[token_env],
+            "federation_rule_id": os.environ["ANTHROPIC_FEDERATION_RULE_ID"],
+            "organization_id": os.environ["ANTHROPIC_ORGANIZATION_ID"],
+            "service_account_id": os.environ["ANTHROPIC_SERVICE_ACCOUNT_ID"],
+        }
+        # Omitted when the rule covers a single workspace: the server picks it.
+        if os.getenv("ANTHROPIC_WORKSPACE_ID"):
+            kwargs["workspace_id"] = os.environ["ANTHROPIC_WORKSPACE_ID"]
+        return WorkloadIdentityCredentials(**kwargs)
+
     def _client(self):
         import anthropic
 
@@ -170,6 +210,10 @@ class AnthropicProvider:
             if name in os.environ and not os.environ[name].strip():
                 if self.federation_configured() or self.profile_configured()[0]:
                     del os.environ[name]
+
+        credentials = self.explicit_federation_credentials()
+        if credentials is not None:
+            return anthropic.Anthropic(credentials=credentials)
 
         # Zero-arg: the SDK resolves the API key, the profile, or the
         # federation exchange itself, and refreshes federated tokens.

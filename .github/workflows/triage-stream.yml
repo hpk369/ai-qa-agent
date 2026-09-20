@@ -85,10 +85,13 @@ jobs:
           echo "ANTHROPIC_IDENTITY_TOKEN_FILE=${token_file}" >> "${GITHUB_ENV}"
           echo "minted an OIDC token ($(wc -c < "${token_file}") bytes)"
 
-      - name: Verify federation is what authenticates
-        # Without this the run would still "succeed": an unresolved
-        # credential silently falls back to deterministic narration, which
-        # looks like a quiet model rather than a broken setup.
+      - name: Verify the credential end to end
+        # Resolves the credential, then makes one small real call — a few
+        # tokens, a fraction of a cent. Without it the run would still
+        # "succeed": an unresolved credential falls back to deterministic
+        # narration, which looks like a quiet model rather than a broken
+        # setup. This is also what completes the Console wizard's
+        # connection test.
         env:
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
@@ -97,22 +100,11 @@ jobs:
           AGENT_MODEL: ${{ vars.AGENT_MODEL }}
         run: |
           set -euo pipefail
-          # An unset Actions variable arrives as an empty string, not as an
-          # absent variable. Drop the empties before calling Python: a blank
-          # ANTHROPIC_WORKSPACE_ID would otherwise be carried into the token
-          # exchange, where the server expects the field to be absent when the
-          # rule covers a single workspace.
-          for name in ANTHROPIC_WORKSPACE_ID AGENT_MODEL SLACK_CHANNEL_ALERTS \
-                      SLACK_CHANNEL_P1 SLACK_CHANNEL_CHANGES SLACK_BOT_TOKEN; do
+          for name in ANTHROPIC_WORKSPACE_ID AGENT_MODEL; do
             if [ -z "${!name:-}" ]; then unset "${name}"; fi
           done
-          source=$(python -c "from agent.providers import AnthropicProvider as A; print(A.credential_source())")
-          echo "credential source: ${source}"
-          python -c "from agent import llm; print('model layer:', llm.describe())"
-          if [ "${source}" != "workload identity federation" ]; then
-            echo "::error::expected federation, got '${source}' — check the workflow's variables"
-            exit 1
-          fi
+          python scripts/check_credentials.py --live \
+            --expect "workload identity federation"
 
       - name: Fetch the public log corpus
         # Optional: without it the stream generates its background instead.
