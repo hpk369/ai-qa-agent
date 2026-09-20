@@ -222,8 +222,8 @@ ai-qa-agent/
 
 ## Design Decisions
 
-**Why does severity classification live outside a model?**
-An LLM asked to both observe evidence and assign a severity label will occasionally assign different severities to identical evidence across runs, and there is no way to audit *why* short of re-reading its reasoning trace. `agent/severity.py` reads the same signals and applies the same YAML-configured thresholds every time — the same log set always produces the same severity, and `matched_conditions` names exactly which rule fired. The same argument applies to runbook selection (`agent/runbooks.py`) and to the approval gate: all three are code reading signals, not judgement calls.
+**Why is severity decided by code rather than inferred?**
+Anything that both observes evidence and judges its severity will eventually call identical evidence two different ways, and there is no way to audit *why* after the fact. `agent/severity.py` reads the signals and applies the same YAML-configured thresholds every time — the same log set always produces the same severity, and `matched_conditions` names exactly which rule fired. The thresholds live in `config/severity.yml` so a disagreement about where P2 starts is a config review, not a code change. The same argument applies to runbook selection (`agent/runbooks.py`) and to the approval gate: all three are code reading signals, not judgement calls.
 
 **Why derive signals from log text rather than from the mixer?**
 Because the mixer knows the answer and the agent must not. Everything the triage path concludes comes from regex matches against the log lines — the same lines an analyst tailing the file would see. The manifest's ground truth exists only to score detection afterwards, and a test asserts the analysis is identical when that ground truth is deleted.
