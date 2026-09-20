@@ -103,7 +103,7 @@ jobs:
           for name in ANTHROPIC_WORKSPACE_ID AGENT_MODEL; do
             if [ -z "${!name:-}" ]; then unset "${name}"; fi
           done
-          python scripts/check_credentials.py --live \
+          python scripts/check_credentials.py --live --show-claims \
             --expect "workload identity federation"
 
       - name: Fetch the public log corpus

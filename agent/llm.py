@@ -123,7 +123,10 @@ def _describe_exception(exc: Exception) -> str:
         secret = os.getenv(variable)
         if secret:
             message = message.replace(secret, "***REDACTED***")
-    return f"{name}: {message[:200]}"
+    # Long enough for a federation error to arrive intact: those carry the
+    # server's own remediation hint, and cutting it mid-sentence throws away
+    # the most useful part of the failure.
+    return f"{name}: {message[:800]}"
 
 
 def _source_name() -> str:
@@ -201,7 +204,11 @@ def narrate(
     try:
         return LLMResult(_parse(NARRATE_SYSTEM, prompt, Narration, "medium"), _source_name())
     except Exception as exc:  # noqa: BLE001 - an alert must not depend on an inference call
-        return LLMResult(fallback, "fallback", _describe_exception(exc))
+        detail = _describe_exception(exc)
+        # Say why, loudly. Degrading silently is what turns a broken
+        # credential or a rejected parameter into "the model seems quiet".
+        print(f"[llm] WARNING: narration fell back to deterministic text — {detail}")
+        return LLMResult(fallback, "fallback", detail)
 
 
 # ---------- 2. Judging a resolution ----------
@@ -272,9 +279,11 @@ def judge_resolution(
     try:
         return LLMResult(_parse(JUDGE_SYSTEM, prompt, ResolutionJudgement, "low"), _source_name())
     except Exception as exc:  # noqa: BLE001 - a failed call must not resume the stream
+        detail = _describe_exception(exc)
+        print(f"[llm] WARNING: resolution judgement fell back, gate stays shut — {detail}")
         return LLMResult(
             ResolutionJudgement(resolved=False, confidence=0.0,
                                 reason="could not reach the model; staying paused"),
             "fallback",
-            _describe_exception(exc),
+            detail,
         )
