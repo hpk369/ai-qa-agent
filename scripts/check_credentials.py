@@ -134,6 +134,7 @@ def main() -> int:
                              "against the federation rule's match conditions")
     args = parser.parse_args()
 
+    shown_claims = False
     provider = resolve()
     if provider is None:
         print("No model provider is configured — the agent would run on its "
@@ -150,6 +151,7 @@ def main() -> int:
             _report_federation()
         if args.show_claims and source == "workload identity federation":
             show_claims()
+            shown_claims = True
         if args.expect and source != args.expect:
             print(f"\nExpected '{args.expect}' but the SDK will use '{source}'.",
                   file=sys.stderr)
@@ -175,8 +177,8 @@ def main() -> int:
         )
     except Exception as exc:  # noqa: BLE001 - this script exists to report the failure
         print(f"\nThe call failed: {llm._describe_exception(exc)}", file=sys.stderr)
-        if isinstance(provider, AnthropicProvider) and \
-                provider.credential_source() == "workload identity federation":
+        if (not shown_claims and isinstance(provider, AnthropicProvider)
+                and provider.credential_source() == "workload identity federation"):
             # A 401 here means the rule rejected the token, so the next
             # question is always "rejected on which claim?".
             show_claims()
