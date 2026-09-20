@@ -26,8 +26,6 @@ The pieces behind that loop:
 
 **Slack runs in stub mode by default.** `SLACK_MODE=stub` writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path — parent message, thread reply, P1 mirror, button interactions — runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post into a real workspace; [`docs/SLACK_SETUP.md`](docs/SLACK_SETUP.md) walks through obtaining each value.
 
-A second path is also in the tree and tested: a Claude tool-use loop (`POST /agent/run`) over a mock Postgres/Kafka pipeline, orchestrated by n8n. It shares the same severity classifier, incident record and Slack layer.
-
 <a id="demo-pages"></a>**Demo page.** [`docs/index.html`](https://demo.inkandinfra.com/) is a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s output for each mock-pipeline failure mode, including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend, so it works unmodified on GitHub Pages.
 
 ## Log-set triage
@@ -70,7 +68,7 @@ Detection 2/2 injected signature(s) found (recall 1.0)
 Download  reports/logsets/LS-20260920-001007-07ea.zip
 ```
 
-Over HTTP, the same thing (`python agent/agent.py`, or `docker compose up agent_server`):
+Over HTTP, the same thing (`python agent/agent.py`):
 
 | Endpoint | What it does |
 |---|---|
@@ -154,118 +152,6 @@ Background lines come from the [LogHub](https://github.com/logpai/loghub) collec
 
 Two hits of the same signature are not twice as bad — signals merge by taking the worse value, except blocked downstream jobs, which add up. A test renders every signature 25 times and asserts the analyser finds it and that its signals classify to a real severity: a failure mode the mixer can inject but the analyser cannot find would be the worst kind of bug here.
 
-## The tool-use path
-
-A Claude tool-use loop over the mock Postgres/Kafka pipeline, orchestrated by n8n — the second path through the same triage layer.
-
-```
-Kafka event / cron / webhook
-         │
-    [n8n Trigger]
-         │
-    [Triage Agent Node]  ◄── Claude API (tool-use mode) — reports signals, not severity
-         │
-    ┌────┴────────────────┐
-    │                     │                      │
-[SQL Validator]   [Log Analyser]   [Schema Comparator]
-    │                     │                      │
-    └────────────┬──────────────────────────────┘
-                 │
-       [Deterministic Severity Classifier]
-       agent/severity.py + config/severity.yml
-                 │
-          ┌──────┴──────┐
-      no incident    incident (P1–P4)
-          │              │
-  [Robot Framework]   [pytest]
-  SLA / contract      Diagnostic deep-dive to
-  verification;       isolate the failing
-  re-run after         component
-  remediation to
-  confirm restoration
-          │              │
-          └──────┬───────┘
-                 │
-      [n8n Incident Record Builder]
-                 │
-     [Slack alert + Jenkins webhook]
-```
-
-## Agent Response Contract
-
-`POST /agent/run` returns:
-
-```json
-{
-  "run_id": "run-001",
-  "incident": { "incident_id": "INC-20260913-0214", "severity": "P2", "...": "..." } | null,
-  "clean": true,
-  "checks_performed": ["recon", "logs", "schema"],
-  "duration_ms": 842
-}
-```
-
-`incident` is `null` and `clean` is `true` on a healthy run. Otherwise `incident` is a full record matching `schemas/incident.schema.json` — severity, a rationale naming every matched condition, business-terms impact summary, technical root cause, confidence, and whether it requires human approval before remediation (deterministic: any `P1`/`P2` does). See `agent/prompts.py` for exactly what the model is asked to report, and `agent/severity.py` for how that gets turned into a severity.
-
-## n8n Workflow
-
-The complete workflow lives in `n8n_workflows/qa_agent_workflow.json` — import it via **Settings → Import from file** in the n8n UI. (The filename is unchanged for now to avoid an unrelated rename churning the diff; nodes inside it are named per the current terminology.)
-
-### Workflow Map
-
-**n8n does not talk to Slack at all.** The Python
-agent server posts incidents to Slack itself, right inside `/agent/run`,
-and Slack's own interactivity Request URL points at a new endpoint on
-that same server (`/slack/action`), not at n8n. Full rationale and the
-detailed sequence diagrams live in [`docs/workflow-map.md`](docs/workflow-map.md); the summary:
-
-```
-① Pipeline Trigger      (Webhook — POST /pipeline-trigger)
-         │
-② Call Triage Agent     (HTTP Request → agent_server:8001/agent/run, 60s timeout)
-         │              Claude tool-use loop + severity classification +
-         │              posting the incident to Slack all happen here
-         │
-③ Check Incident Status (IF node — clean == true)
-         │
-    TRUE ┤                              FALSE
-   clean │                            incident
-         ▼                                 ▼
-④ Run Robot Framework           ⑤ Run pytest
-         │                                 │
-⑥ Read RF Report                ⑦ Read pytest Report
-         │                                 │
-         └──────────────┬──────────────────┘
-                        ▼
-               ⑧ Merge Reports
-                        │
-          ⑨ Build Incident Record   (Code node — JS)
-             Shapes the summary object for Jenkins/the caller
-                        │
-              ⑩ Jenkins Webhook
-                        │
-            ⑪ Respond to Webhook
-```
-
-Node-by-node detail (including the endpoint Slack's Interactivity Request
-URL actually needs to point at) is in [`docs/workflow-map.md`](docs/workflow-map.md).
-
-### Design Decisions
-
-**Why clean → Robot Framework and incident → pytest?**
-Robot Framework's keyword-driven syntax maps naturally to business-level pipeline contracts. `Logs Should Contain No Errors` and `Row Drop Should Be Under Threshold` are readable specifications, not code — and re-running the same suite after remediation is what actually confirms an incident is resolved, not just that a human believes it is. pytest provides fast, targeted unit-level feedback when something breaks: the diagnostic deep-dive that tells you exactly which transformation step failed, not just that the pipeline didn't pass an end-to-end check.
-
-**Why `responseMode: responseNode`?**
-Holding the webhook connection open means any caller — a Kafka consumer, a CI step, a `curl` command — receives the full incident record synchronously in a single HTTP call. No polling, no callback URL, no second request.
-
-**Why does the Python agent post to Slack rather than n8n?**
-The Slack Web API client, Block Kit builder and HMAC signature verifier are fully unit-tested Python, and `post_incident()` needs to mutate and re-persist the same `Incident` object it posts — something only the process that owns `agent/incident.py::persist` can do cleanly. Re-implementing Block Kit rendering and signature verification a second time in n8n's JS Code nodes would mean two implementations of the same logic, one of them untested in an environment with no running n8n instance to check JS against. See `docs/workflow-map.md` for the full reasoning and the resulting endpoint topology.
-
-**Why does severity classification live outside the model?**
-An LLM asked to both observe evidence and assign a severity label will occasionally assign different severities to identical evidence across runs, and there is no way to audit *why* short of re-reading its reasoning trace. `agent/severity.py` reads the same evidence and applies the same YAML-configured thresholds every time — the same input always produces the same severity, and `matched_conditions` names exactly why. The model's only job is to report what it actually observed accurately.
-
----
-
 ## Quick Start
 
 ```bash
@@ -274,124 +160,88 @@ python scripts/fetch_logs.py     # optional — real background logs
 python scripts/logset.py         # mix, triage, alert, print the download path
 ```
 
-That is the whole main path: no API key, no Docker, no Slack workspace. The alert lands in `reports/slack/` and the log set in `reports/logsets/`.
+No API key, no containers, no Slack workspace. The alert lands in `reports/slack/`, the log set and its zip in `reports/logsets/`.
 
-For the tool-use path (Claude + n8n + the mock pipeline) you need the stack:
+## Demo: the incident lifecycle
 
-```bash
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-
-docker compose up
-```
-
-Then open n8n at http://localhost:5678 (admin/password) and import `n8n_workflows/qa_agent_workflow.json`.
-
-## Demo: Trigger Failure Modes (mock pipeline)
+`--lifecycle` walks the opened incident through the states a real one goes through, using the same functions the Slack buttons drive — acknowledged → approved (the gate every P1/P2 requires) → verifying → resolved, which is what produces MTTA and MTTR:
 
 ```bash
-# Clean run → no incident → Robot Framework
-INJECT_FAILURE=none python mock_pipeline/producer.py
-
-# Schema drift → incident (P1: load cannot complete without the column) → pytest
-INJECT_FAILURE=schema_drift python mock_pipeline/producer.py
-
-# Row drop → incident (P2: row variance over threshold) → pytest
-INJECT_FAILURE=row_drop python mock_pipeline/producer.py
-
-# Null spike → incident (P3: null-rate increase on a critical column) → pytest
-INJECT_FAILURE=null_spike python mock_pipeline/producer.py
-
-# Kafka latency → incident (P2: projected SLA breach) → pytest
-INJECT_FAILURE=latency python mock_pipeline/producer.py
+python scripts/logset.py --lifecycle
 ```
 
-Severities above reflect `config/severity.yml`'s thresholds against each mode's characteristic signal — see `tests/pytest/test_agent_response.py` for the exact signal-to-severity mapping tested for each mode.
+```
+Incident  INC-20260920-0034  P1  — approval required
+...
+Lifecycle
+          ACKNOWLEDGED by U_DEMO
+          APPROVED by U_DEMO -> status=remediating
+          VERIFYING
+          RESOLVED -> MTTA=0s MTTR=0s
+```
 
-The commands above go through the full pipeline (Kafka → n8n → agent, requiring `ANTHROPIC_API_KEY` and the whole stack running). For a live demo or to verify a real Slack setup without any of that, use the demo scripts instead:
+A batch of sessions, then the metrics across all of them:
 
 ```bash
-# One incident, opened and posted to Slack (or reports/slack/ if SLACK_MODE=stub)
-scripts/demo_incident.py row_drop
-
-# ...and walked through its full lifecycle: acknowledged -> approved ->
-# remediating -> verifying -> resolved, updating the Slack parent message
-# in place at each step
-scripts/demo_incident.py schema_drift --lifecycle --actor U_ONCALL
-
-# Every failure mode, full lifecycle, plus the resulting metrics report --
-# a one-command walkthrough for a live demo
-scripts/demo_all.sh
+python scripts/logset.py --sessions 5 --lifecycle
+python scripts/incident_metrics.py
 ```
 
-These call exactly the same code the real agent uses (`agent.agent.build_response`/`notify_slack`, `agent.incident.record_approval_decision`/`resolve_incident`) against a synthetic model output shaped like what a compliant Claude call would produce — no `ANTHROPIC_API_KEY`, no tool server, no n8n required. `SLACK_MODE` (stub by default) works exactly as it does everywhere else in this repo: unset/`stub` previews locally with zero setup, `live` with a populated `.env` narrates into a real workspace.
+`incident_metrics.py` reports count by severity, median and p90 MTTA/MTTR, and the false-positive rate, read from `reports/incidents/*.json`. MTTA/MTTR read ~0s on a scripted walkthrough, for the obvious reason; a real incident's figures come from real Slack thread timestamps (`agent/incident.py::sync_slack_engagement`).
 
 ## Running Tests Locally
 
 ```bash
 pip install -r requirements.txt
-
-# pytest suite (no services required — 297 tests, nothing touches the network)
-pytest tests/pytest/ -v
-
-# just the log-set path
+pytest tests/pytest/ -v          # 206 tests, nothing touches the network
 pytest tests/pytest/test_logsets.py -v
-
-# Robot Framework (requires tool server running)
-TOOL_SERVER_HOST=localhost python agent_tools/tool_server.py &
-robot --outputdir reports/robot tests/robot/acceptance.robot
 ```
 
 ## Project Structure
 
 ```
 ai-qa-agent/
-├── logsets/                # THE MAIN PATH — log sources + error signatures (catalog.py),
-│                           #   corpus fetch/fallback (corpus.py), per-session mixing
-│                           #   (session.py), analysis → severity → incident → Slack (triage.py)
-├── mock_pipeline/          # Simulated pipeline + failure injection (tool-use path)
-├── agent_tools/            # SQL validator, log analyser, schema comparator + FastAPI server
-├── agent/                  # Claude tool-use loop, severity classifier, incident records, Slack client/blocks/verify, runbook selection, evidence bundle
+├── logsets/                # Log sources + error signatures (catalog.py), corpus
+│                           #   fetch/fallback (corpus.py), per-session mixing
+│                           #   (session.py), analysis → severity → incident →
+│                           #   Slack (triage.py)
+├── agent/                  # Severity classifier, incident record + lifecycle,
+│                           #   Slack client/blocks/verify, runbook selection,
+│                           #   and the HTTP server (agent.py)
 ├── config/                 # severity.yml — thresholds live here, never in code
-├── schemas/                # incident.schema.json — the incident record's JSON Schema
-├── scripts/                # logset.py, fetch_logs.py, first-15-minutes.sh,
-│                           #   incident_metrics.py, demo_incident.py, demo_all.sh
+├── schemas/                # incident.schema.json — the incident record's contract
+├── scripts/                # logset.py (the CLI), fetch_logs.py, incident_metrics.py
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
-│   ├── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
-│   └── robot/              # Keyword-driven E2E validation checks
-├── n8n_workflows/          # Importable n8n workflow JSON (Slack posting lives in agent/, not here — see docs/workflow-map.md)
-├── docs/                   # workflow-map.md, SLACK_SETUP.md, runbooks/ + the live demo page
-├── reports/                # Session log sets + their zips, persisted incidents, evidence
-│                           #   bundles, stub Slack payloads, test output
-├── docker-compose.yml
+│   └── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
+├── docs/                   # SLACK_SETUP.md, runbooks/, and the live demo page
+├── reports/                # Session log sets + zips, persisted incidents,
+│                           #   stub Slack payloads
 └── .env.example
 ```
 
-## Failure Modes (mock pipeline)
+## Design Decisions
 
-| Mode | Description | Failing Tool(s) | Signal reported | Resulting severity |
-|---|---|---|---|---|
-| `none` | Clean run | — | all clean | no incident |
-| `row_drop` | Target has 40% fewer rows | SQL Validator | `row_variance_pct: 40.0` | P2 |
-| `schema_drift` | `account_balance` renamed to `bal` | Schema Comparator | `job_failed_no_path_to_sla: true` | P1 |
-| `null_spike` | `customer_id` null rate → 35% | SQL Validator + Log Analyser | `null_rate_increase_pct: {customer_id: 35.0}` | P3 |
-| `latency` | Kafka consumer lag > 10,000 msgs | Log Analyser | `sla_breach_projected: true` | P2 |
+**Why does severity classification live outside a model?**
+An LLM asked to both observe evidence and assign a severity label will occasionally assign different severities to identical evidence across runs, and there is no way to audit *why* short of re-reading its reasoning trace. `agent/severity.py` reads the same signals and applies the same YAML-configured thresholds every time — the same log set always produces the same severity, and `matched_conditions` names exactly which rule fired. The same argument applies to runbook selection (`agent/runbooks.py`) and to the approval gate: all three are code reading signals, not judgement calls.
+
+**Why derive signals from log text rather than from the mixer?**
+Because the mixer knows the answer and the agent must not. Everything the triage path concludes comes from regex matches against the log lines — the same lines an analyst tailing the file would see. The manifest's ground truth exists only to score detection afterwards, and a test asserts the analysis is identical when that ground truth is deleted.
+
+**Why is Slack a view rather than the source of truth?**
+The incident record on disk (`schemas/incident.schema.json`) is the system of record. Slack is where humans see it and act on it, so every Slack failure is logged loudly and never raised: a run that correctly opened an incident must not fail because Slack was unreachable. `post_incident()` writes the returned `ts`/`channel` back onto the incident and re-persists in the same call, so there is never a posted message with no record behind it.
+
+**Why is the corpus fetched rather than vendored?**
+The LogHub datasets are third-party research data. Fetching them at setup keeps the repository small and the provenance honest — and the generated fallback means a clone with no network still produces complete log sets, with each file's origin recorded in the manifest.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Log corpus | [LogHub](https://github.com/logpai/loghub) public system logs, fetched at setup (`scripts/fetch_logs.py`), with a generated fallback |
-| Log-set mixing & analysis | Python 3.11 (`logsets/`) — seeded mixing, regex signature catalogue, no model in the loop |
-| Workflow orchestration | n8n (self-hosted via Docker) — tool-use path |
-| LLM agent | Claude API, tool-use mode — reports signals, not severity |
+| Log-set mixing & analysis | Python 3.11 (`logsets/`) — seeded mixing, regex signature catalogue |
 | Severity classification | Deterministic Python, config-driven (`agent/severity.py` + `config/severity.yml`) |
-| Tool API server | Python 3.11 + FastAPI |
-| Acceptance / restoration validation | Robot Framework 7.x |
-| Diagnostic / unit testing | pytest 8.x |
-| Mock pipeline | Python + kafka-python |
-| Database | PostgreSQL 15 — provisioned in `docker-compose.yml` for the tool-use path |
-| Containerisation | Docker + Docker Compose |
-| CI integration | Jenkins webhook |
-| Notifications | Slack bot-token app (`agent/slack_client.py`), posted directly by the Python agent — threaded, editable in place. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required. |
+| Incident record | JSON Schema-validated records on disk, full lifecycle + approval gate (`agent/incident.py`) |
+| HTTP server | FastAPI — log-set endpoints and Slack's interactivity endpoint |
+| Notifications | Slack bot-token app (`agent/slack_client.py`) — threaded, editable in place, Block Kit. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required |
+| Testing | pytest 8.x — 206 tests, no network, no services |

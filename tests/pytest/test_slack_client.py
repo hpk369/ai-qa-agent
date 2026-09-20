@@ -48,7 +48,7 @@ def _incident():
         response_expectation="Notify on-call, begin remediation, hourly updates",
     )
     run_context = {
-        "detected_by": "sql_validator",
+        "detected_by": "logset-triage",
         "affected_job": "cx_customer_load",
         "affected_objects": ["target.customer_dim"],
         "impact_summary": "Customer dimension missing ~7% of records.",

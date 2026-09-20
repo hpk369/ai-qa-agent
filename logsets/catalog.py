@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-# Same threshold agent_tools/log_analyser.py uses, for the same reason.
+# A consumer group this far behind is an SLA risk, not a blip.
 KAFKA_LAG_THRESHOLD = int(os.getenv("KAFKA_LAG_THRESHOLD", "10000"))
 
 

@@ -17,7 +17,7 @@
     },
     "detected_by": {
       "type": "string",
-      "description": "Tool name that raised the incident, e.g. sql_validator."
+      "description": "What raised the incident, e.g. logset-triage."
     },
     "severity": {
       "type": "string",

@@ -6,8 +6,6 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
-reports/robot/
-reports/pytest/
 reports/incidents/*.json
 reports/incidents/*.md
 reports/evidence/*

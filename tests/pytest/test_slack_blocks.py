@@ -31,7 +31,7 @@ def _fixed_incident(**overrides) -> Incident:
     base = dict(
         incident_id="INC-20260912-0214",
         opened_at="2026-09-12T02:14:33.000Z",
-        detected_by="sql_validator",
+        detected_by="logset-triage",
         severity="P2",
         severity_rationale="row_variance_pct >= 5.0 (actual: 40.0)",
         affected_job="cx_customer_load",

@@ -20,25 +20,23 @@ matched to a customer." A null spike on a non-critical column (e.g.
 
 ## Diagnostic steps
 
-1. Get the exact null rate and affected column from the incident record or
-   by re-running the check:
-   ```bash
-   curl -s -X POST http://localhost:8000/tools/sql_validator \
-     -H 'Content-Type: application/json' \
-     -d '{"source_table":"src.transactions","target_table":"tgt.transactions"}' | jq '.null_rates'
+1. Get the current null rate for the named column straight from the
+   target, to confirm the incident's figure still holds:
+   ```sql
+   SELECT count(*) FILTER (WHERE customer_id IS NULL)::float / count(*) AS null_rate
+     FROM tgt.transactions;
    ```
 
-2. Reproduce locally:
+2. Read the null-rate line and its surroundings in the log set the alert
+   came from:
    ```bash
-   INJECT_FAILURE=null_spike python mock_pipeline/producer.py
+   grep -n -B3 -A3 'Null rate for column' reports/logsets/<session_id>/*.log
    ```
 
-3. Pull the correlated log errors (real log path, or the mock path used by
-   this repo's failure injection):
+3. Pull every error line from the same log set, not just the one that
+   matched:
    ```bash
-   curl -s -X POST http://localhost:8000/tools/log_analyser \
-     -H 'Content-Type: application/json' \
-     -d '{"log_path":"/mock/diagnostic.log"}' | jq '.errors'
+   grep -nE '\b(ERROR|FATAL)\b' reports/logsets/<session_id>/*.log
    ```
    A `NullPointerException` or a named join key in the error strongly
    suggests a broken null-safe join, not a genuinely null source value.

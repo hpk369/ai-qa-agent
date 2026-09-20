@@ -1,7 +1,6 @@
 """
-Slack Web API client — bot token only. The old SLACK_WEBHOOK_URL incoming
-webhook (still referenced by n8n_workflows/qa_agent_workflow.json)
-cannot return a message ts, cannot update a message, and cannot carry
+Slack Web API client — bot token only. An incoming webhook cannot
+return a message ts, cannot update a message, and cannot carry
 interactivity, so it cannot thread an incident. This client can.
 
 SLACK_MODE=stub (the default when unset) writes every payload Slack would
@@ -30,7 +29,6 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 

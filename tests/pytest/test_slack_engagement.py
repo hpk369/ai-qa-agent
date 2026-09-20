@@ -57,7 +57,7 @@ def _incident():
         response_expectation="Notify on-call",
     )
     incident = open_incident(
-        {}, result, {"detected_by": "sql_validator", "impact_summary": "impact", "confidence": 0.9}
+        {}, result, {"detected_by": "logset-triage", "impact_summary": "impact", "confidence": 0.9}
     )
     incident.slack_channel = "C_ALERTS"
     incident.slack_ts = "1690000000.000100"
