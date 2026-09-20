@@ -1,5 +1,5 @@
 """
-Tests for agent.agent's Slack integration (T1.4): notify_slack() posting a
+Tests for agent.agent's Slack integration: notify_slack() posting a
 newly opened incident, and the /slack/action interactivity endpoint
 (signature verification, immediate 200 ack, dispatch to a background
 task). No live Slack anywhere here — SLACK_MODE=stub throughout.

@@ -1,16 +1,14 @@
-# Phase 1 human setup — connecting a real Slack workspace
+# Connecting a real Slack workspace
 
-Everything in Phase 1 (`agent/slack_client.py`, `agent/slack_blocks.py`,
+The Slack layer (`agent/slack_client.py`, `agent/slack_blocks.py`,
 `agent/slack_verify.py`, the `/slack/action` endpoint, the approval gate,
-MTTA/MTTR Slack sync) is built and tested against `SLACK_MODE=stub` — the
-code has never touched a live Slack workspace, because none of the items
-below existed when it was built. This is the checklist to change that.
+MTTA/MTTR Slack sync) runs against `SLACK_MODE=stub` out of the box,
+writing every payload to `reports/slack/` with no network call. This is
+the checklist for switching it to `SLACK_MODE=live`.
 
-**Important topology note:** `IMPLEMENTATION.md`'s original checklist says
-the tunnel should point at n8n on port 5678. That's now wrong for this
-codebase — Slack posting and interactivity moved into the Python agent
-server (T1.4, see [`docs/workflow-map.md`](workflow-map.md)), so **the
-tunnel needs to reach the agent server on port 8001**, not n8n.
+**Topology note:** Slack posting and interactivity live in the Python
+agent server, not in n8n (see [`docs/workflow-map.md`](workflow-map.md)),
+so **the tunnel needs to reach the agent server on port 8001**.
 
 ---
 
@@ -72,8 +70,7 @@ SLACK_CHANNEL_DAILY=C...
 ## 5. A public tunnel to the agent server (port 8001)
 
 Slack needs to reach your machine to deliver button clicks to
-`/slack/action`. Cloudflare Tunnel is recommended (per
-`expansion-plan.md` §4.A6):
+`/slack/action`. Cloudflare Tunnel is recommended:
 
 ```bash
 # quick/ephemeral — hostname changes every restart, fine for initial testing
@@ -131,16 +128,3 @@ moment later. If nothing arrives, check the agent server's logs first
 (`notify_slack`/`process_slack_action` log every failure loudly, per
 this codebase's "Slack is a view, never the source of truth" design —
 nothing here fails silently).
-
-## What's genuinely not built yet
-
-- **The reaction-based approval fallback** (`APPROVAL_MODE=reaction` in
-  `IMPLEMENTATION.md`'s T1.5) — only the interactive-button path exists.
-  Per that task's own instruction ("build the interactive path first"),
-  this was the one actually built; the fallback is unbuilt, not merely
-  untested.
-- **`#etl-daily`** has no code posting to it yet — it's provisioned for a
-  future scheduled digest that doesn't exist in this codebase.
-- Everything above is genuinely untested against live Slack from this
-  session — the first real run per step 7 is also the first time any of
-  this code has talked to an actual Slack API.

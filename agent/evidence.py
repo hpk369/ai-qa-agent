@@ -11,10 +11,10 @@ separate, standalone (no Python) implementation of the same idea for an
 on-call engineer working directly on a broken machine; this module is
 what agent/agent.py calls automatically at incident open.
 
-Current stack caveat: this repo's tools run in mock mode by default (see
-docs/INVENTORY.md §4/§8) — DDL/schema and row counts below reflect that
-mock data unless a real source/target connection is wired in. Said
-plainly in each artifact rather than silently presented as live data.
+Current stack caveat: this repo's tools run in mock mode by default —
+DDL/schema and row counts below reflect that mock data unless a real
+source/target connection is wired in. Said plainly in each artifact
+rather than silently presented as live data.
 """
 
 from __future__ import annotations

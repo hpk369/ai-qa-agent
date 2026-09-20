@@ -1,9 +1,12 @@
 # Severity thresholds for the ETL Production Support Triage Agent.
 #
 # Thresholds live here, never in code (agent/severity.py). Every threshold
-# below must be defensible in review — see expansion-plan.md §4.A1 for the
-# rationale behind why 5% row variance is P2 and 1% is P3, and why null-rate
-# tolerance differs by column criticality.
+# below must be defensible in review: 5% row variance is P2 because a
+# twentieth of a day's rows missing is a reconciliation break a business
+# user will notice; 1% is P3 because it is degraded but complete enough to
+# work with. Null-rate tolerance differs by column criticality for the same
+# reason — nulls in customer_id break joins downstream, nulls in region_code
+# do not.
 
 severities:
   P1:

@@ -1,7 +1,7 @@
 # Workflow Map — n8n + the Triage Agent's own Slack integration
 
-This documents the full incident-notification path as of Phase 1 (T1.4),
-split across two processes: the n8n workflow (`n8n_workflows/qa_agent_workflow.json`)
+This documents the full incident-notification path, split across two
+processes: the n8n workflow (`n8n_workflows/qa_agent_workflow.json`)
 still owns triggering, running the right validation framework, and
 notifying Jenkins/the original caller — but it no longer touches Slack at
 all. The Python agent server (`agent/agent.py`) now owns every Slack
@@ -10,9 +10,9 @@ clicks.
 
 ## Why Slack moved out of n8n
 
-T1.1–T1.3 built a Slack Web API client, Block Kit builders, and HMAC
-signature verification in Python — each fully unit-tested with the HTTP
-layer mocked. `agent/slack_client.py::post_incident` mutates the
+The Slack Web API client, Block Kit builders and HMAC signature
+verification are Python, each fully unit-tested with the HTTP layer
+mocked. `agent/slack_client.py::post_incident` mutates the
 `Incident` object (writing back `slack_ts`/`slack_channel`) and
 re-persists it in the same call, which only makes sense from the process
 that owns `agent/incident.py::persist`. Re-implementing Block Kit
@@ -99,20 +99,18 @@ verify_slack_request()  ──fail──▶ 401, stop (payload never parsed)
        ▼ (background task, after the response)
 process_slack_action()
    → agent.incident.load(incident_id)
-   → agent.incident.record_approval_decision(...)   [T1.4: records to
-     the timeline and persists; T1.5 adds the full approval-gate rules —
-     rejecting a second decision, posting to #etl-changes, escalate
-     re-opening + mirroring to #etl-prod-p1]
+   → agent.incident.record_approval_decision(...)   [records to the
+     timeline and persists, applies the approval-gate rules: rejecting a
+     second decision, posting to #etl-changes, escalate re-opening +
+     mirroring to #etl-prod-p1]
 ```
 
 ## Human setup this implies
 
 Point the Slack app's **Interactivity & Shortcuts** Request URL at
 `{PUBLIC_WEBHOOK_BASE}/slack/action` on the **agent server** (port 8001),
-not at n8n (port 5678) — this is the one place the deployment topology
-differs from a naive reading of `IMPLEMENTATION.md`'s literal T1.4 text,
-and is the amendment flagged and agreed on before this task started.
+not at n8n (port 5678).
 
 For the full step-by-step (creating the workspace, the app manifest to
 use, where every `.env` value comes from), see
-[`docs/PHASE1_SETUP.md`](PHASE1_SETUP.md).
+[`docs/SLACK_SETUP.md`](SLACK_SETUP.md).

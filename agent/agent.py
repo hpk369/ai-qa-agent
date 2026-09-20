@@ -53,8 +53,8 @@ TOOL_SERVER_BASE = (
 )
 REQUIRED_TOOLS = {"sql_validator", "log_analyser", "schema_comparator"}
 
-# Canonical, spec-defined order for the response's checks_performed list —
-# see IMPLEMENTATION.md T0.4. Filtered down to whichever tools were
+# Canonical order for the response's checks_performed list. Filtered
+# down to whichever tools were
 # actually called on a given run.
 TOOL_SHORT_NAMES = [
     ("sql_validator", "recon"),
@@ -143,7 +143,7 @@ def build_response(
             "runbook": select_runbook(signals),
             "recommended_action": agent_output.get("recommended_action"),
             # Deterministic, not model-decided: P1/P2 always require a
-            # recorded human approval before remediation (see T1.5).
+            # recorded human approval before remediation.
             "requires_approval": severity_result.severity in {"P1", "P2"},
         }
         incident = open_incident(signals, severity_result, run_context)
@@ -293,9 +293,9 @@ def _extract_action(action_payload: dict[str, Any]) -> tuple[str, str, str] | No
 
 def process_slack_action(action_payload: dict[str, Any]) -> None:
     """
-    Handle one verified Slack interactivity payload. T1.4 lands the
-    endpoint plumbing (verification, immediate ack, dispatch); the actual
-    approve/reject/escalate decision recording is T1.5's
+    Handle one verified Slack interactivity payload. The endpoint
+    plumbing (verification, immediate ack, dispatch) lives here; the
+    decision itself is recorded by
     agent.incident.record_approval_decision — this function just wires
     the two together and logs anything it can't process rather than
     raising (there's no HTTP response left to return by the time this
@@ -313,7 +313,7 @@ def process_slack_action(action_payload: dict[str, Any]) -> None:
         print(f"[agent] WARNING: /slack/action referenced unknown incident {incident_id!r}")
         return
 
-    from agent.incident import record_approval_decision  # local import: T1.5
+    from agent.incident import record_approval_decision  # local import: avoids a cycle
 
     decision = {
         "incident_approve": "approved",

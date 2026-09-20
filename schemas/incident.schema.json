@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/hpk369/ai-qa-agent/schemas/incident.schema.json",
   "title": "Incident",
-  "description": "System-of-record for an ETL production support incident. Slack is a view onto this object, not the other way around — see expansion-plan.md section 4.A2/A6.",
+  "description": "System-of-record for an ETL production support incident. Slack is a view onto this object, not the other way around.",
   "type": "object",
   "properties": {
     "incident_id": {

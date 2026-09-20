@@ -1,13 +1,13 @@
 """
 Tests for agent.agent.build_response — the pure, network-free part of the
 agent loop that turns Claude's reported signals into the new response
-contract (T0.4). run_agent() itself calls the live Anthropic API and is
-exercised manually/in the demo, not here (see docs/INVENTORY.md).
+contract. run_agent() itself calls the live Anthropic API and is
+exercised manually/in the demo, not here.
 
 Each existing failure mode gets a synthetic `agent_output` representing
 what a compliant agent should report for that mode's tool results, so
 these tests double as the "existing failure injections produce valid
-incidents" acceptance check from IMPLEMENTATION.md T0.4 without requiring
+incidents" acceptance check without requiring
 a live model call.
 """
 
