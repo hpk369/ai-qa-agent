@@ -66,6 +66,7 @@ def no_llm(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     from agent import providers
     monkeypatch.setattr(providers, "_ollama_running", lambda host=None: False)
+    providers.reset_cache()
 
 
 @pytest.fixture

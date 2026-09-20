@@ -107,6 +107,9 @@ def clean_env(monkeypatch, tmp_path):
     # never decides the result of a test.
     monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(tmp_path / "anthropic"))
     monkeypatch.setattr(providers, "_ollama_running", lambda host=None: False)
+    providers.reset_cache()
+    yield
+    providers.reset_cache()
 
 
 @pytest.fixture
@@ -616,3 +619,42 @@ def test_a_malformed_token_is_reported_not_raised(tmp_path, monkeypatch, capsys)
     _load_check_script().show_claims()
 
     assert "could not decode" in capsys.readouterr().out
+
+
+# ---------- One client, one token exchange ----------
+
+def test_the_client_is_built_once_and_reused(jwt_in_env, monkeypatch):
+    """Each federated client construction costs a token exchange. An
+    identity token an issuer honours once makes a per-call client fail on
+    the second call, which is exactly what a live run showed."""
+    calls = _fake_sdk(monkeypatch)
+    monkeypatch.setattr(AnthropicProvider, "explicit_federation_credentials",
+                        classmethod(lambda cls: object()))
+
+    provider = AnthropicProvider()
+    first = provider._client()
+    second = provider._client()
+
+    assert first is second
+    assert len(calls) == 1
+
+
+def test_resolve_returns_the_same_provider_for_the_same_environment(jwt_in_env):
+    """Caching the client only helps if the provider survives too."""
+    providers.reset_cache()
+    assert providers.resolve() is providers.resolve()
+
+
+def test_changing_a_credential_resolves_again(jwt_in_env, monkeypatch):
+    providers.reset_cache()
+    first = providers.resolve()
+    monkeypatch.setenv("ANTHROPIC_SERVICE_ACCOUNT_ID", "svac_different")
+    assert providers.resolve() is not first
+
+
+def test_switching_provider_kind_resolves_again(jwt_in_env, monkeypatch):
+    providers.reset_cache()
+    assert isinstance(providers.resolve(), AnthropicProvider)
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("LLM_MODEL", "llama3.2")
+    assert isinstance(providers.resolve(), OpenAICompatibleProvider)
