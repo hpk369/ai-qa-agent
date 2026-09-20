@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import threading
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -563,3 +564,55 @@ def test_the_client_is_given_those_credentials(jwt_in_env, monkeypatch):
     AnthropicProvider()._client()
 
     assert calls == [{"credentials": sentinel}]
+
+
+# ---------- Reading a token's claims (diagnosing a rejected exchange) ----------
+
+def _load_check_script():
+    """scripts/ is not a package — load the CLI module by path."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "check_credentials.py"
+    spec = importlib.util.spec_from_file_location("check_credentials", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def test_identity_token_claims_are_decoded_for_comparison(tmp_path, monkeypatch, capsys):
+    """A 401 from the exchange means the rule rejected the token; the next
+    question is always which claim it rejected."""
+    import base64
+    import json as json_module
+
+    claims = {
+        "iss": "https://token.actions.githubusercontent.com",
+        "aud": "https://api.anthropic.com",
+        "sub": "repo:owner/repo:ref:refs/heads/main",
+        "repository_owner": "owner",
+        "event_name": "workflow_dispatch",
+    }
+
+    def b64(data):
+        return base64.urlsafe_b64encode(json_module.dumps(data).encode()).decode().rstrip("=")
+
+    token_file = tmp_path / "jwt"
+    token_file.write_text(f"{b64({'alg': 'RS256'})}.{b64(claims)}.the-signature")
+    monkeypatch.setenv("ANTHROPIC_IDENTITY_TOKEN_FILE", str(token_file))
+
+    _load_check_script().show_claims()
+
+    printed = capsys.readouterr().out
+    for value in claims.values():
+        assert value in printed
+    # The signature is what makes the token usable — it is never printed.
+    assert "the-signature" not in printed
+
+
+def test_a_malformed_token_is_reported_not_raised(tmp_path, monkeypatch, capsys):
+    token_file = tmp_path / "jwt"
+    token_file.write_text("not-a-jwt")
+    monkeypatch.setenv("ANTHROPIC_IDENTITY_TOKEN_FILE", str(token_file))
+
+    _load_check_script().show_claims()
+
+    assert "could not decode" in capsys.readouterr().out

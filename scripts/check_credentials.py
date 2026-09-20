@@ -29,6 +29,8 @@ for, or the call fails.
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -43,6 +45,51 @@ from agent import llm
 from agent.providers import AnthropicProvider, resolve
 
 PROBE = "Reply with the single word: ready"
+
+# Claims worth comparing against a federation rule's match conditions.
+CLAIMS_OF_INTEREST = ("iss", "aud", "sub", "repository", "repository_owner",
+                      "ref", "event_name", "workflow", "environment", "actor")
+
+
+def _identity_token() -> str | None:
+    """The JWT the workload will present, from wherever it lives."""
+    path = os.getenv("ANTHROPIC_IDENTITY_TOKEN_FILE")
+    if path and Path(path).exists():
+        return Path(path).read_text().strip()
+    for name in ("ANTHROPIC_IDENTITY_TOKEN",
+                 os.getenv("ANTHROPIC_IDENTITY_TOKEN_ENV", "JWT")):
+        if os.getenv(name):
+            return os.environ[name].strip()
+    return None
+
+
+def show_claims() -> None:
+    """Print the identity token's claims so they can be compared, field by
+    field, with the federation rule.
+
+    The payload is decoded, never verified — this is for reading, not for
+    trusting. Only the claims are shown: the signature is what makes the
+    token usable, and it is never printed.
+    """
+    token = _identity_token()
+    if not token:
+        print("  (no identity token found to decode)")
+        return
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)          # restore base64url padding
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except Exception as exc:  # noqa: BLE001 - a malformed token is itself the finding
+        print(f"  (could not decode the token payload: {exc})")
+        return
+
+    print("\n  the token presents these claims — each must satisfy the rule:")
+    for name in CLAIMS_OF_INTEREST:
+        if name in claims:
+            print(f"    {name:18} {claims[name]}")
+    extra = sorted(set(claims) - set(CLAIMS_OF_INTEREST) - {"iat", "exp", "nbf", "jti"})
+    if extra:
+        print(f"    {'other claims':18} {', '.join(extra)}")
 
 
 def _report_federation() -> None:
@@ -82,6 +129,9 @@ def main() -> int:
                         help="fail unless the credential source matches, e.g. "
                              "'workload identity federation'")
     parser.add_argument("--model", help="override the model for the probe")
+    parser.add_argument("--show-claims", action="store_true",
+                        help="decode and print the identity token's claims, to compare "
+                             "against the federation rule's match conditions")
     args = parser.parse_args()
 
     provider = resolve()
@@ -98,6 +148,8 @@ def main() -> int:
         print(f"credential        {source}")
         if source == "workload identity federation":
             _report_federation()
+        if args.show_claims and source == "workload identity federation":
+            show_claims()
         if args.expect and source != args.expect:
             print(f"\nExpected '{args.expect}' but the SDK will use '{source}'.",
                   file=sys.stderr)
@@ -123,9 +175,15 @@ def main() -> int:
         )
     except Exception as exc:  # noqa: BLE001 - this script exists to report the failure
         print(f"\nThe call failed: {llm._describe_exception(exc)}", file=sys.stderr)
-        print("If this is a federation setup, check that the rule's subject, audience "
-              "and workspace match the token the workload presents, and that the "
-              "service account is a member of that workspace.", file=sys.stderr)
+        if isinstance(provider, AnthropicProvider) and \
+                provider.credential_source() == "workload identity federation":
+            # A 401 here means the rule rejected the token, so the next
+            # question is always "rejected on which claim?".
+            show_claims()
+            print("\n  compare each line above with the rule's match conditions: "
+                  "subject_prefix against sub, audience against aud, and any claim "
+                  "constraints against their claims. Check too that the service "
+                  "account is a member of the rule's workspace.", file=sys.stderr)
         return 1
 
     text = next((block.text for block in response.content if block.type == "text"), "")

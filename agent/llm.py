@@ -123,7 +123,10 @@ def _describe_exception(exc: Exception) -> str:
         secret = os.getenv(variable)
         if secret:
             message = message.replace(secret, "***REDACTED***")
-    return f"{name}: {message[:200]}"
+    # Long enough for a federation error to arrive intact: those carry the
+    # server's own remediation hint, and cutting it mid-sentence throws away
+    # the most useful part of the failure.
+    return f"{name}: {message[:800]}"
 
 
 def _source_name() -> str:
