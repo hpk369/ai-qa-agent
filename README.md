@@ -1,5 +1,7 @@
 # ETL Production Support Triage Agent
 
+[![tests](https://github.com/hpk369/ai-qa-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/hpk369/ai-qa-agent/actions/workflows/tests.yml)
+
 **[▶ Live Demo](https://demo.inkandinfra.com/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons.
 
 When a production ETL job breaks, the question that matters isn't "did the pipeline pass or fail" — it's "what's the severity, who's affected, and what do I do in the first fifteen minutes." This project answers that from the one artifact an on-call analyst always has: **the logs**.
@@ -267,7 +269,7 @@ export ANTHROPIC_IDENTITY_TOKEN_FILE=/var/run/secrets/anthropic.com/token   # or
 # ANTHROPIC_WORKSPACE_ID only when the rule covers more than one workspace
 ```
 
-In GitHub Actions the job needs `permissions: id-token: write`, then writes the OIDC token to a file and points `ANTHROPIC_IDENTITY_TOKEN_FILE` at it. On Kubernetes it is a projected service-account token and the path above is already right.
+[`.github/workflows/triage-stream.yml`](.github/workflows/triage-stream.yml) does exactly this for GitHub Actions — see [Continuous integration](#continuous-integration) for the variables it reads. On Kubernetes it is a projected service-account token and the path above is already right.
 
 **2. An `ant auth login` profile — keyless on a developer machine.** A laptop running `python scripts/stream.py` by hand has no workload identity to federate, so this is the keyless option there: an interactive login stores a short-lived token under `~/.config/anthropic/` (mode `0600`), outside the repo, and a zero-arg client picks it up.
 
@@ -364,6 +366,29 @@ pytest tests/pytest/test_logsets.py -v
 pytest tests/pytest/test_stream.py tests/pytest/test_llm.py tests/pytest/test_providers.py -v
 ```
 
+## Continuous integration
+
+Two workflows, in [`.github/workflows/`](.github/workflows):
+
+**`tests.yml`** — runs the suite and `pyflakes` on every push and pull request. It needs no credentials, no network and no services: the tests exercise the deterministic fallbacks and a local HTTP server for the provider adapter. If it ever starts needing a secret, something has regressed.
+
+**`triage-stream.yml`** — runs the live stream against the real model on a weekly schedule (or on demand), authenticating with **Workload Identity Federation**. GitHub mints a short-lived OIDC token for the job, Anthropic exchanges it for a token that expires in minutes, and no API key exists in the repository or its secrets. The run uploads its log sets, incident records and Slack payloads as an artifact.
+
+Set these under **Settings → Secrets and variables → Actions → Variables** — they are identifiers rather than secrets, so they stay auditable in the run log:
+
+| Variable | |
+|---|---|
+| `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_...` from the Console's **Connect workload** wizard |
+| `ANTHROPIC_ORGANIZATION_ID` | the organization UUID |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_...`, the rule's target service account |
+| `ANTHROPIC_WORKSPACE_ID` | only when the rule covers more than one workspace |
+| `ANTHROPIC_OIDC_AUDIENCE` | only when the rule matches an exact audience |
+| `AGENT_MODEL` | optional; defaults to `claude-haiku-4-5` |
+
+The workflow declares `permissions: id-token: write`, writes the JWT to a `0600` file that is never echoed, and **fails if the resolved credential is anything other than federation** — otherwise a misconfigured run would quietly fall back to deterministic narration and look like a quiet model rather than a broken setup. Until `ANTHROPIC_FEDERATION_RULE_ID` is set the job is skipped rather than failed, so a fork does not go red.
+
+A scheduled run passes `--auto-resolve 30`: nobody is watching Slack at 07:17 on a Monday, so a blocking incident releases itself instead of holding the runner. Drop that flag to watch the gate hold for real. At `--duration 120` the run costs about a cent on Haiku 4.5.
+
 ## Project Structure
 
 ```
@@ -384,6 +409,7 @@ ai-qa-agent/
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
 │   └── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
+├── .github/workflows/      # tests on every push; a weekly federated stream run
 ├── docs/                   # SLACK_SETUP.md, runbooks/, and the live demo page
 ├── reports/                # Session log sets + zips, persisted incidents,
 │                           #   stub Slack payloads
