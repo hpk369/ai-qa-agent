@@ -10,7 +10,10 @@ name: triage stream
 #   ANTHROPIC_ORGANIZATION_ID       the org UUID
 #   ANTHROPIC_SERVICE_ACCOUNT_ID    svac_...   the rule's target service account
 #   ANTHROPIC_WORKSPACE_ID          wrkspc_... only if the rule covers several workspaces
-#   ANTHROPIC_OIDC_AUDIENCE         only if the rule matches an exact audience
+#   ANTHROPIC_OIDC_AUDIENCE         defaults to https://api.anthropic.com, which is
+#                                   what the Console's GitHub Actions wizard puts in
+#                                   the rule's audience matcher — override only if
+#                                   your rule matches something else
 #   AGENT_MODEL                     optional; defaults to claude-haiku-4-5
 # These are identifiers, not secrets — variables, not secrets, so they are
 # visible in the log and easy to audit.
@@ -59,13 +62,15 @@ jobs:
 
       - name: Mint a GitHub OIDC token for Anthropic
         env:
-          AUDIENCE: ${{ vars.ANTHROPIC_OIDC_AUDIENCE }}
+          # The federation rule matches the token's `aud` claim exactly. GitHub's
+          # own default audience is the repository owner URL, which would not
+          # match a rule built by the Console wizard, so ask for the documented
+          # one unless a variable says otherwise.
+          AUDIENCE: ${{ vars.ANTHROPIC_OIDC_AUDIENCE || 'https://api.anthropic.com' }}
         run: |
           set -euo pipefail
-          url="${ACTIONS_ID_TOKEN_REQUEST_URL}"
-          if [ -n "${AUDIENCE}" ]; then
-            url="${url}&audience=$(printf %s "${AUDIENCE}" | jq -sRr @uri)"
-          fi
+          url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(printf %s "${AUDIENCE}" | jq -sRr @uri)"
+          echo "requesting an OIDC token with audience ${AUDIENCE}"
           token_file="${RUNNER_TEMP}/anthropic-oidc.jwt"
           umask 077
           # The JWT goes straight to a file: never echoed, never in the log.
