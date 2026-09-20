@@ -220,10 +220,18 @@ def build_session(
         files=files,
         injected=injected,
     )
-    (directory / MANIFEST_NAME).write_text(
-        json.dumps(logset.to_dict(), indent=2) + "\n", encoding="utf-8")
-    (directory / README_NAME).write_text(_bundle_readme(logset), encoding="utf-8")
+    write_manifest(logset)
     return logset
+
+
+def write_manifest(logset: "LogSet") -> None:
+    """Write (or rewrite) a set's manifest and README. Called once for a
+    built set, and after every incident for a running stream, so a set
+    being written to is still readable from outside."""
+    logset.directory.mkdir(parents=True, exist_ok=True)
+    (logset.directory / MANIFEST_NAME).write_text(
+        json.dumps(logset.to_dict(), indent=2) + "\n", encoding="utf-8")
+    (logset.directory / README_NAME).write_text(_bundle_readme(logset), encoding="utf-8")
 
 
 def _bundle_readme(logset: LogSet) -> str:

@@ -56,13 +56,18 @@ def _merge_signals(into: dict[str, Any], new: dict[str, Any]) -> None:
             into[key] = max(into.get(key, 0), value)
 
 
-def analyse_file(path: Path) -> dict[str, Any]:
-    """Scan one log file: level counts, signature hits, unrecognised errors."""
+def scan_lines(lines: list[str], file_name: str, first_line_number: int = 1) -> dict[str, Any]:
+    """Scan a run of log lines: level counts, signature hits, unrecognised
+    errors. Works on a whole file or on the window a tail has just read —
+    logsets/stream.py scans only what arrived since the last check, which
+    is what stops a second incident from re-deriving the first one's
+    signals from lines it already reported."""
     findings: list[dict[str, Any]] = []
     unmatched: list[dict[str, Any]] = []
     error_count = warn_count = 0
 
-    for number, raw in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    for offset, raw in enumerate(lines):
+        number = first_line_number + offset
         line = raw.rstrip()
         is_error = bool(_ERROR_LEVEL.search(line))
         if is_error:
@@ -79,21 +84,27 @@ def analyse_file(path: Path) -> dict[str, Any]:
             findings.append({
                 "signature_id": signature.id,
                 "title": signature.title,
-                "file": path.name,
+                "file": file_name,
                 "line": number,
                 "line_text": line[:400],
                 "signals": signature.to_signals(match),
             })
         if is_error and not matched:
-            unmatched.append({"file": path.name, "line": number, "line_text": line[:400]})
+            unmatched.append({"file": file_name, "line": number, "line_text": line[:400]})
 
     return {
-        "file": path.name,
+        "file": file_name,
         "error_count": error_count,
         "warn_count": warn_count,
         "findings": findings,
         "unmatched_errors": unmatched,
     }
+
+
+def analyse_file(path: Path) -> dict[str, Any]:
+    """Scan one whole log file."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return scan_lines(text.splitlines(), path.name)
 
 
 def analyse_logset(logset: LogSet) -> dict[str, Any]:

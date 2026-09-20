@@ -6,6 +6,8 @@ When a production ETL job breaks, the question that matters isn't "did the pipel
 
 Each session gets its own log set — a few log files mixed from a corpus of real, public production logs (Spark, YARN, HDFS, ZooKeeper, OpenStack, syslog, sshd, and more) with ETL failure signatures injected into them. The agent reads the log text, derives severity signals from it, classifies them with a deterministic config-driven ruleset, opens a structured incident record, and **posts a Slack alert**. The thread reply carries a link to download the exact log set that produced the alert, so the call can be checked against the evidence.
 
+It runs two ways. **Batch** (`scripts/logset.py`) mixes one finished log set and triages it. **Streaming** (`scripts/stream.py`) emits logs continuously, alerts at the line rather than at the end — and when a failure is serious enough to block a real pipeline, it stops the stream and waits for a human to confirm in Slack that the problem is fixed before it resumes.
+
 ## What this is
 
 **One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** It runs with no API key, no cluster and no services — `python scripts/logset.py` does the whole thing on a fresh clone.
@@ -22,7 +24,9 @@ The pieces behind that loop:
 | Incident record, approval gate, MTTA/MTTR | `agent/incident.py`, `scripts/incident_metrics.py` |
 | Slack Web API client, Block Kit messages, HMAC verification | `agent/slack_client.py`, `agent/slack_blocks.py`, `agent/slack_verify.py` |
 | Five runbooks, deterministically selected | `agent/runbooks.py`, `docs/runbooks/` |
-| Entry points | `scripts/logset.py`, `POST /logset/run`, `GET /logset/{id}/download` |
+| Live stream, backpressure, the resolution gate | `logsets/stream.py` |
+| Claude: alert narration and resolution judgement | `agent/llm.py` |
+| Entry points | `scripts/logset.py`, `scripts/stream.py`, `scripts/slack_reply.py`, `POST /logset/run`, `GET /logset/{id}/download` |
 
 **Slack runs in stub mode by default.** `SLACK_MODE=stub` writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path — parent message, thread reply, P1 mirror, button interactions — runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post into a real workspace; [`docs/SLACK_SETUP.md`](docs/SLACK_SETUP.md) walks through obtaining each value.
 
@@ -152,15 +156,86 @@ Background lines come from the [LogHub](https://github.com/logpai/loghub) collec
 
 Two hits of the same signature are not twice as bad — signals merge by taking the worse value, except blocked downstream jobs, which add up. A test renders every signature 25 times and asserts the analyser finds it and that its signals classify to a real severity: a failure mode the mixer can inject but the analyser cannot find would be the worst kind of bug here.
 
+## Live stream with backpressure
+
+```bash
+python scripts/stream.py                    # 3 minutes of live logs at 6 lines/s
+python scripts/stream.py --rate 12 --duration 600
+python scripts/stream.py --sources kafka-consumer,spark-executor --seed 42
+python scripts/stream.py --auto-resolve 20  # unattended demo, nobody watching Slack
+```
+
+Lines arrive continuously and the agent tails them, so an alert fires **at the failure**, while the rest of the stream is still running. Each incident is judged only on the lines that arrived since the last one — the window a tail actually sees — so a second failure is never re-derived from the first one's evidence.
+
+**A blocking failure stops the pipeline.** P1 and P2 (configurable) are the failures a real pipeline cannot carry on through: the target is unavailable, the job aborted, the control totals disagree. The stream stops advancing and drops to a trickle of backpressure lines — retries, growing queue depth, DagRuns held on an upstream incident — which is what a stalled pipeline actually writes. It resumes only when a human confirms the problem is fixed.
+
+```
+[   48.1s] 🚨 INC-20260920-0100-2 P2
+            Row count reconciliation failed for tgt.transactions: 12.5% of the
+            settlement batch is missing downstream of CustomerTransformStep.
+            signatures: SIG-001-ROW-SHORTFALL   runbook: docs/runbooks/RB-001-row-shortfall.md
+[   48.1s] ⏸ INC-20260920-0100-2 is blocking the stream
+            the pipeline is held here until someone confirms it is fixed:
+            python scripts/slack_reply.py INC-20260920-0100-2 "<what you did to fix it>"
+[   50.1s] 💬 U_ONCALL: taking a look, paging the platform team
+[   50.1s] 🤖 not resolved (0.00): no reply states outright that the issue is fixed
+[   52.1s] 💬 U_ONCALL: reran the load after the dedup fix — counts match, all clear
+[   52.1s] 🤖 resolved (0.95): "counts match" states recovery
+[   52.1s] ▶️ a human confirmed it in Slack — backpressure released
+[   60.0s] ■ completed — 1408 lines, 2 incident(s)
+```
+
+(The transcript above is a run with `ANTHROPIC_API_KEY` set — the alert paragraph and the two 🤖 lines are Claude's. Without a key those come from the deterministic fallbacks, which is what the test suite exercises.)
+
+Three things can release the gate, and a model being reachable is only one of them:
+
+1. **A thread reply Claude judges to be a confirmation.** "restarted the consumer, lag is draining" releases it; "looking into it" does not. Ambiguity keeps it shut — resuming a broken pipeline is worse than waiting another minute.
+2. **A ✅ reaction** on the incident message (`--react white_check_mark`).
+3. **The incident being resolved in the record** — a Slack Approve/Reject button, or anything else that calls `resolve_incident`.
+
+If nobody confirms within `--max-block-wait` (default 10 minutes), the stream **stops** rather than resuming on a pipeline nobody has fixed, and says so.
+
+With `SLACK_MODE=stub` there is no workspace to type into, so replies come from a local inbox that the stub Slack client reads:
+
+```bash
+python scripts/slack_reply.py INC-... "restarted the consumer, lag is draining"
+python scripts/slack_reply.py INC-... --react white_check_mark
+python scripts/slack_reply.py INC-... --list
+```
+
+Everything downstream treats those exactly as real thread activity: the gate polls them, and MTTA counts the first one as the human response. In `SLACK_MODE=live` a person replies in Slack and this script is unnecessary.
+
+A stream writes into the same layout as a batch log set, so `--show`, `GET /logset/{id}` and the download endpoint all work on it unchanged.
+
+## Where Claude is used
+
+Two calls, both in [`agent/llm.py`](agent/llm.py), both chosen because the judgement is genuinely linguistic:
+
+**1. Narrating the alert.** Log lines are precise and unreadable. Claude turns the matched lines and derived signals into the paragraph a woken-up engineer reads first: business impact, likely root cause, next action. It is told the severity and told not to revisit it.
+
+**2. Judging whether a Slack reply confirms resolution.** This is what releases a blocked stream, and no regex settles it — "should be fine after the next run" is not a confirmation, "namenode is back up, writes are succeeding" is.
+
+What Claude is deliberately **not** asked: severity, runbook selection, or whether an incident opens at all. Those stay in `agent/severity.py` and `agent/runbooks.py`, where the same evidence always produces the same answer and `matched_conditions` says exactly why. A model that occasionally calls the same evidence P2 and P3 is not something you can run an on-call rota against.
+
+**Every call degrades instead of failing.** No API key, no SDK, a rate limit, a timeout, a malformed response — each returns the deterministic text the code had before, tagged `fallback` so the output tells you which one you are reading. An alert that reads flatter is fine; an incident that fails to open because an API call failed is not. The resolution judge fails *closed*: an unreachable model leaves the stream paused, never resumes it.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # turns both calls on
+LLM_MODE=off python scripts/stream.py # forces the deterministic path
+```
+
+Model: `claude-opus-5` by default (`AGENT_MODEL`), called with structured outputs so the response is a validated object rather than prose to parse.
+
 ## Quick Start
 
 ```bash
 pip install -r requirements.txt
 python scripts/fetch_logs.py     # optional — real background logs
-python scripts/logset.py         # mix, triage, alert, print the download path
+python scripts/logset.py         # batch: mix, triage, alert, print the download path
+python scripts/stream.py         # live: stream logs, alert as they arrive, block on P1/P2
 ```
 
-No API key, no containers, no Slack workspace. The alert lands in `reports/slack/`, the log set and its zip in `reports/logsets/`.
+No API key, no containers, no Slack workspace needed for either. The alert lands in `reports/slack/`, the log set and its zip in `reports/logsets/`. Set `ANTHROPIC_API_KEY` to turn on the Claude layer.
 
 ## Demo: the incident lifecycle
 
@@ -193,8 +268,9 @@ python scripts/incident_metrics.py
 
 ```bash
 pip install -r requirements.txt
-pytest tests/pytest/ -v          # 206 tests, nothing touches the network
+pytest tests/pytest/ -v          # 243 tests, nothing touches the network
 pytest tests/pytest/test_logsets.py -v
+pytest tests/pytest/test_stream.py tests/pytest/test_llm.py -v
 ```
 
 ## Project Structure
@@ -204,13 +280,15 @@ ai-qa-agent/
 ├── logsets/                # Log sources + error signatures (catalog.py), corpus
 │                           #   fetch/fallback (corpus.py), per-session mixing
 │                           #   (session.py), analysis → severity → incident →
-│                           #   Slack (triage.py)
+│                           #   Slack (triage.py), live stream + blocking gate
+│                           #   (stream.py)
 ├── agent/                  # Severity classifier, incident record + lifecycle,
 │                           #   Slack client/blocks/verify, runbook selection,
-│                           #   and the HTTP server (agent.py)
+│                           #   the Claude layer (llm.py), and the HTTP server
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's contract
-├── scripts/                # logset.py (the CLI), fetch_logs.py, incident_metrics.py
+├── scripts/                # logset.py, stream.py, slack_reply.py, fetch_logs.py,
+│                           #   incident_metrics.py
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
 │   └── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
@@ -240,8 +318,10 @@ The LogHub datasets are third-party research data. Fetching them at setup keeps 
 |---|---|
 | Log corpus | [LogHub](https://github.com/logpai/loghub) public system logs, fetched at setup (`scripts/fetch_logs.py`), with a generated fallback |
 | Log-set mixing & analysis | Python 3.11 (`logsets/`) — seeded mixing, regex signature catalogue |
+| Live streaming | Python 3.11 (`logsets/stream.py`) — rate-paced emission, windowed tailing, backpressure gate |
 | Severity classification | Deterministic Python, config-driven (`agent/severity.py` + `config/severity.yml`) |
 | Incident record | JSON Schema-validated records on disk, full lifecycle + approval gate (`agent/incident.py`) |
 | HTTP server | FastAPI — log-set endpoints and Slack's interactivity endpoint |
 | Notifications | Slack bot-token app (`agent/slack_client.py`) — threaded, editable in place, Block Kit. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required |
-| Testing | pytest 8.x — 206 tests, no network, no services |
+| Narration & resolution judgement | Claude (`claude-opus-5`) via the Anthropic SDK, structured outputs, deterministic fallbacks |
+| Testing | pytest 8.x — 243 tests, no network, no services |
