@@ -88,12 +88,30 @@ def endpoint():
     fake.stop()
 
 
+WIF_ENV = {
+    "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_test",
+    "ANTHROPIC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000000",
+    "ANTHROPIC_SERVICE_ACCOUNT_ID": "svac_test",
+    "ANTHROPIC_IDENTITY_TOKEN_FILE": "/var/run/secrets/anthropic.com/token",
+}
+
+
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "LLM_BASE_URL",
-                 "LLM_MODEL", "LLM_API_KEY", "LLM_MODE", "LLM_PROVIDER"):
+def clean_env(monkeypatch, tmp_path):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
+                 "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "LLM_MODE", "LLM_PROVIDER",
+                 *WIF_ENV):
         monkeypatch.delenv(name, raising=False)
+    # An empty config dir, so a developer's real ~/.config/anthropic profile
+    # never decides the result of a test.
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(tmp_path / "anthropic"))
     monkeypatch.setattr(providers, "_ollama_running", lambda host=None: False)
+
+
+@pytest.fixture
+def federated(monkeypatch):
+    for name, value in WIF_ENV.items():
+        monkeypatch.setenv(name, value)
 
 
 def provider_for(endpoint, **kwargs):
@@ -344,3 +362,118 @@ def test_the_older_off_switch_still_works(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "qwen2.5:7b")
     monkeypatch.setenv("LLM_MODE", "off")
     assert providers.resolve() is None
+
+
+# ---------- Credentials: federation, profiles, keys ----------
+
+def test_federation_needs_every_variable(monkeypatch, federated):
+    assert AnthropicProvider.federation_configured() is True
+    for name in WIF_ENV:
+        monkeypatch.delenv(name)
+        assert AnthropicProvider.federation_configured() is False, f"{name} should be required"
+        monkeypatch.setenv(name, WIF_ENV[name])
+
+
+def test_either_token_variable_satisfies_federation(monkeypatch, federated):
+    monkeypatch.delenv("ANTHROPIC_IDENTITY_TOKEN_FILE")
+    assert AnthropicProvider.federation_configured() is False
+    monkeypatch.setenv("ANTHROPIC_IDENTITY_TOKEN", "eyJhbGciOiJSUzI1NiIs...")
+    assert AnthropicProvider.federation_configured() is True
+
+
+def test_federation_alone_is_enough_to_select_claude(federated):
+    """No API key anywhere, and Claude is still selected and usable."""
+    assert AnthropicProvider.credential_source() == "workload identity federation"
+    assert AnthropicProvider.configured() is True
+    assert isinstance(providers.resolve(), AnthropicProvider)
+
+
+def test_credential_precedence_matches_the_sdk(monkeypatch, federated, tmp_path):
+    """Documented order: key > named profile > federation > profile on disk."""
+    assert AnthropicProvider.credential_source() == "workload identity federation"
+
+    monkeypatch.setenv("ANTHROPIC_PROFILE", "staging")
+    assert AnthropicProvider.credential_source() == "profile staging"
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real")
+    assert AnthropicProvider.credential_source() == "api key"
+
+
+def test_a_profile_on_disk_is_found(monkeypatch, tmp_path):
+    config_dir = tmp_path / "anthropic"
+    (config_dir / "configs").mkdir(parents=True)
+    (config_dir / "configs" / "default.json").write_text("{}")
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(config_dir))
+
+    assert AnthropicProvider.credential_source() == "profile default"
+
+    (config_dir / "active_config").write_text("production\n")
+    assert AnthropicProvider.credential_source() == "profile production"
+
+
+def test_no_credentials_means_no_anthropic_provider():
+    assert AnthropicProvider.credential_source() == "none"
+    assert AnthropicProvider.configured() is False
+
+
+def _fake_sdk(monkeypatch):
+    """Inject a stand-in `anthropic` module and record the constructor args."""
+    import sys
+    import types
+
+    calls = []
+
+    class FakeAnthropic:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    module = types.ModuleType("anthropic")
+    module.Anthropic = FakeAnthropic
+    monkeypatch.setitem(sys.modules, "anthropic", module)
+    return calls
+
+
+def test_the_client_is_constructed_with_no_arguments_under_federation(monkeypatch, federated):
+    """The SDK performs the token exchange itself — passing anything would
+    override it."""
+    calls = _fake_sdk(monkeypatch)
+    AnthropicProvider()._client()
+    assert calls == [{}]
+
+
+def test_a_blank_api_key_is_cleared_so_federation_is_not_shadowed(monkeypatch, federated):
+    """An exported ANTHROPIC_API_KEY="" occupies its slot in the SDK's
+    precedence chain and authenticates with an empty key — a blank
+    placeholder in .env must not silently break federation."""
+    _fake_sdk(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    AnthropicProvider()._client()
+
+    assert "ANTHROPIC_API_KEY" not in os.environ
+
+
+def test_a_real_api_key_is_never_cleared(monkeypatch, federated):
+    _fake_sdk(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real")
+
+    AnthropicProvider()._client()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-real"
+
+
+def test_a_blank_key_is_left_alone_when_it_is_the_only_credential(monkeypatch):
+    """Nothing to fall through to, so the SDK's own error is the clearest
+    thing to report."""
+    _fake_sdk(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    AnthropicProvider()._client()
+
+    assert os.environ["ANTHROPIC_API_KEY"] == ""
+
+
+def test_the_banner_names_the_credential_source(monkeypatch, federated):
+    monkeypatch.setattr(AnthropicProvider, "configured", staticmethod(lambda: True))
+    assert "workload identity federation" in providers.describe()
+    assert "claude-haiku-4-5" in providers.describe()

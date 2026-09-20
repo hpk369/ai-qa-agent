@@ -63,6 +63,13 @@ def load_env(path: Path | None = None, override: bool = False) -> list[str]:
     for name, value in parse_env(text).items():
         if not override and os.environ.get(name):
             continue  # the real environment wins
+        if not value.strip():
+            # A blank line in .env means "I left the placeholder empty", but an
+            # exported empty credential is not the same as an unset one: the
+            # Anthropic SDK treats ANTHROPIC_API_KEY="" as a chosen (empty) API
+            # key and never falls through to federation or a profile. So a
+            # blank value is skipped rather than exported.
+            continue
         os.environ[name] = value
         applied.append(name)
     return applied

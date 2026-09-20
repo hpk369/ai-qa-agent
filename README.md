@@ -226,7 +226,7 @@ Neither call needs a frontier model — they are a short paragraph and a yes/no.
 |---|---|---|
 | **Ollama** (or llama.cpp, LM Studio, vLLM) on your own machine | free | `ollama serve && ollama pull llama3.2` — auto-detected on `localhost:11434`, nothing to configure |
 | **Groq**, **OpenRouter**, **Together**, **Fireworks**, **DeepSeek**, **Gemini** (OpenAI-compatible endpoint) | free tiers available | set `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` |
-| **Claude API** | paid — no free model; the default here is Haiku 4.5 at ~$0.004 an incident | set `ANTHROPIC_API_KEY` |
+| **Claude API** | paid — no free model; the default here is Haiku 4.5 at ~$0.004 an incident | federation, an `ant auth login` profile, or `ANTHROPIC_API_KEY` — see [Credentials](#credentials) |
 | **Nothing** | free | deterministic fallbacks, and the output says so |
 
 ```bash
@@ -239,7 +239,8 @@ export LLM_BASE_URL=https://api.groq.com/openai/v1
 export LLM_MODEL=llama-3.3-70b-versatile
 export LLM_API_KEY=gsk_...
 
-# Claude — defaults to Haiku 4.5, the cheapest current model
+# Claude — defaults to Haiku 4.5, the cheapest current model.
+# Authenticate with federation, an `ant auth login` profile, or a key:
 export ANTHROPIC_API_KEY=sk-ant-...
 export AGENT_MODEL=claude-opus-5      # only if you want to pay for more; see below
 
@@ -248,36 +249,54 @@ LLM_PROVIDER=off python scripts/stream.py      # force the deterministic path
 
 `LLM_PROVIDER=auto` (the default) takes the first of: a configured `LLM_BASE_URL`, an `ANTHROPIC_API_KEY`, a local Ollama that answers. Pin it with `anthropic`, `openai`, `ollama` or `off`.
 
-### Providing the key
+### Credentials
 
-```bash
-cp .env.example .env          # .env is gitignored
-$EDITOR .env                  # paste the key there
-python scripts/stream.py      # the CLIs load it; "Model: anthropic (claude-haiku-4-5)"
+Three ways in, and the code path is the same for all of them — the SDK is constructed with no arguments and resolves the credential itself. The banner tells you which one won:
+
+```
+Model: anthropic (claude-haiku-4-5, via workload identity federation)
 ```
 
-`agent/env.py` loads `.env` at the **entry points only** — a library import never reads it, so running the tests can't pull your credentials into the process. Anything already exported wins over the file, so a shell export or a CI secret overrides a stale checkout.
+**1. Workload Identity Federation — no static secret at all.** Where this runs on a platform with an OIDC identity (GitHub Actions, Kubernetes, AWS, GCP, Azure, Okta), the workload presents a JWT its platform already issues, Anthropic exchanges it for a token that expires in minutes, and the SDK refreshes it before it does. Nothing to rotate, nothing to leak. Set up the issuer, service account and rule once in the Console (**Settings → Workload identity → Connect workload**), then:
 
-If you'd rather not keep a key on disk, export it for one shell instead — with a leading space, so it stays out of `~/.bash_history`:
+```bash
+export ANTHROPIC_FEDERATION_RULE_ID=fdrl_...
+export ANTHROPIC_ORGANIZATION_ID=<org-uuid>
+export ANTHROPIC_SERVICE_ACCOUNT_ID=svac_...
+export ANTHROPIC_IDENTITY_TOKEN_FILE=/var/run/secrets/anthropic.com/token   # or ANTHROPIC_IDENTITY_TOKEN
+# ANTHROPIC_WORKSPACE_ID only when the rule covers more than one workspace
+```
+
+In GitHub Actions the job needs `permissions: id-token: write`, then writes the OIDC token to a file and points `ANTHROPIC_IDENTITY_TOKEN_FILE` at it. On Kubernetes it is a projected service-account token and the path above is already right.
+
+**2. An `ant auth login` profile — keyless on a developer machine.** A laptop running `python scripts/stream.py` by hand has no workload identity to federate, so this is the keyless option there: an interactive login stores a short-lived token under `~/.config/anthropic/` (mode `0600`), outside the repo, and a zero-arg client picks it up.
+
+```bash
+ant auth login          # browser login; ant auth status shows which source won
+python scripts/stream.py
+```
+
+**3. An API key — simplest, and a long-lived secret.** `cp .env.example .env`, paste it there (`.env` is gitignored and loaded by the CLIs), or export it for one shell with a leading space so it stays out of `~/.bash_history`:
 
 ```bash
  export ANTHROPIC_API_KEY=sk-ant-...      # note the leading space
-read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY   # or type it invisibly
 ```
 
-What the repo does to keep it from escaping:
+Whichever you use, put a **spend limit** on it in the Console. On a few-dollars-a-year budget that is the control that actually protects you — against a leaked credential, and equally against a stream left running overnight.
 
-- `.env` is gitignored, and `.env.example` ships with empty values.
-- Exception text is redacted before it reaches a log line or a Slack message (`agent/llm.py::_describe_exception`, `agent/slack_client.py::_redact`), so a 401 quoting your key doesn't end up in `reports/`.
-- Nothing writes a credential into an incident record, a manifest, or a downloadable log-set bundle — those carry log lines and paths only.
-- Keys are never put in a prompt, so no model ever sees one.
+#### The trap worth knowing
 
-Two things worth doing on the provider's side, which matter more than anything in this repo:
+Credentials resolve in a fixed order: `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_PROFILE` → federation variables → the active profile on disk. **A variable set to an empty string still wins its slot.** An exported `ANTHROPIC_API_KEY=""` — the shape a blank placeholder in `.env` produces — makes the SDK authenticate with an empty key instead of falling through to federation, and the failure reads like a broken federation setup rather than a stray variable.
 
-- **Use a key scoped to this project**, so revoking it costs you nothing else.
-- **Put a spend limit on it.** On a few-dollars-a-year budget that is the real protection — against a leaked key, and equally against a stream left running overnight.
+Two things here guard against that: `agent/env.py` never exports a blank value from `.env`, and `agent/providers.py` clears an empty `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` when federation or a profile is configured. Both are pinned by tests. `ant auth status` is the authoritative answer to "which credential is this actually using".
 
-If a key ever does reach a commit: rotate it first (assume it is public the moment it is pushed), then clean the history. `git grep -iE "sk-ant-|gsk_|xoxb-"` over the tree is a quick check before pushing.
+#### What the repo does with it
+
+- `.env` is gitignored, and `.env.example` ships with the credential lines commented out.
+- `agent/env.py` loads `.env` at the **entry points only** — a library import never reads it, so running the tests cannot pull your credentials into the process.
+- Exception text is redacted before it reaches a log line or a Slack message (`agent/llm.py::_describe_exception`, `agent/slack_client.py::_redact`), so a 401 quoting a credential does not end up in `reports/`.
+- Nothing writes a credential into an incident record, a manifest, or a downloadable bundle, and no credential is ever put in a prompt.
+- Before pushing: `git grep -iE "sk-ant-|gsk_|xoxb-"`. If one ever does reach a commit, rotate first — assume it is public the moment it is pushed — then clean the history.
 
 ### What it costs
 

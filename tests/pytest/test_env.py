@@ -81,6 +81,21 @@ def test_override_is_available_but_not_the_default(tmp_path, monkeypatch):
     assert os.environ["LLM_MODEL"] == "from-file"
 
 
+def test_blank_values_are_skipped_not_exported(tmp_path, monkeypatch):
+    """A blank placeholder is "unset", not "set to empty" — an exported
+    ANTHROPIC_API_KEY="" would shadow workload identity federation and
+    authenticate with an empty key."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ANTHROPIC_API_KEY=\nLLM_MODEL=llama3.2\nAGENT_PUBLIC_URL=   \n")
+
+    applied = load_env(env_file)
+
+    assert applied == ["LLM_MODEL"]
+    assert "ANTHROPIC_API_KEY" not in os.environ
+    assert "AGENT_PUBLIC_URL" not in os.environ
+
+
 def test_a_missing_file_is_not_an_error(tmp_path):
     assert load_env(tmp_path / "nope.env") == []
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
@@ -51,6 +52,18 @@ OLLAMA_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 # Effort maps to whatever each provider actually understands.
 _ANTHROPIC_EFFORT = {"low": "low", "medium": "medium", "high": "high"}
 _OPENAI_MAX_TOKENS = {"low": 700, "medium": 1200, "high": 2000}
+
+# Workload Identity Federation: the SDK performs the token exchange itself
+# when all of these are set, and refreshes before expiry. There is no static
+# secret anywhere — the JWT comes from the platform the workload runs on.
+# https://platform.claude.com/docs/en/manage-claude/wif-reference
+_WIF_REQUIRED = ("ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID",
+                 "ANTHROPIC_SERVICE_ACCOUNT_ID")
+_WIF_TOKEN = ("ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_IDENTITY_TOKEN")
+
+# An `ant auth login` profile — the keyless option on a developer machine,
+# where there is no workload identity to federate.
+_CONFIG_DIR_ENV = "ANTHROPIC_CONFIG_DIR"
 
 # output_config.effort is not accepted by every Claude model — Haiku 4.5 and
 # Sonnet 4.5 reject it with a 400. Sending it to them would fail every call,
@@ -90,9 +103,52 @@ class AnthropicProvider:
     def supports_effort(self) -> bool:
         return not any(family in self.model for family in _NO_EFFORT_SUPPORT)
 
+    # ---- credentials ----
+
     @staticmethod
-    def configured() -> bool:
-        if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
+    def federation_configured() -> bool:
+        """Workload Identity Federation: no static secret, short-lived
+        tokens exchanged from a JWT the platform issues."""
+        return (all(os.getenv(name) for name in _WIF_REQUIRED)
+                and any(os.getenv(name) for name in _WIF_TOKEN))
+
+    @staticmethod
+    def profile_configured() -> tuple[bool, str]:
+        """An `ant auth login` profile on disk. Returns (found, name)."""
+        named = os.getenv("ANTHROPIC_PROFILE")
+        if named:
+            return True, named
+        config_dir = Path(os.getenv(_CONFIG_DIR_ENV)
+                          or (Path.home() / ".config" / "anthropic"))
+        try:
+            active = config_dir / "active_config"
+            if active.is_file():
+                return True, active.read_text(encoding="utf-8").strip() or "default"
+            if (config_dir / "configs" / "default.json").is_file():
+                return True, "default"
+        except OSError:
+            pass
+        return False, ""
+
+    @classmethod
+    def credential_source(cls) -> str:
+        """Which credential the SDK will actually use, in its documented
+        precedence order. Reported in the banner, because "it authenticated"
+        and "it authenticated as who you meant" are different questions."""
+        if os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"):
+            return "api key"
+        found, name = cls.profile_configured()
+        if found and os.getenv("ANTHROPIC_PROFILE"):
+            return f"profile {name}"
+        if cls.federation_configured():
+            return "workload identity federation"
+        if found:
+            return f"profile {name}"
+        return "none"
+
+    @classmethod
+    def configured(cls) -> bool:
+        if cls.credential_source() == "none":
             return False
         import importlib.util
 
@@ -101,7 +157,23 @@ class AnthropicProvider:
     def _client(self):
         import anthropic
 
-        return anthropic.Anthropic(**({"api_key": self._api_key} if self._api_key else {}))
+        if self._api_key:
+            return anthropic.Anthropic(api_key=self._api_key)
+
+        # A credential variable set to an *empty string* still occupies its
+        # slot in the SDK's precedence chain: an exported ANTHROPIC_API_KEY=""
+        # authenticates with an empty key instead of falling through to
+        # federation or a profile. A blank placeholder left in .env is the
+        # usual way that happens, so clear it when something else is
+        # configured rather than failing with a confusing 401.
+        for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            if name in os.environ and not os.environ[name].strip():
+                if self.federation_configured() or self.profile_configured()[0]:
+                    del os.environ[name]
+
+        # Zero-arg: the SDK resolves the API key, the profile, or the
+        # federation exchange itself, and refreshes federated tokens.
+        return anthropic.Anthropic()
 
     def complete_json(self, system: str, prompt: str, schema: type[BaseModel],
                       effort: str) -> BaseModel:
@@ -287,4 +359,6 @@ def describe() -> str:
     provider = resolve()
     if provider is None:
         return "no model configured — deterministic fallbacks"
+    if isinstance(provider, AnthropicProvider):
+        return f"{provider.name} ({provider.model}, via {provider.credential_source()})"
     return f"{provider.name} ({provider.model})"
