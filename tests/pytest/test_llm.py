@@ -99,7 +99,7 @@ def test_narration_uses_the_models_text_when_available(monkeypatch, local_model)
     assert captured["schema"] is Narration
 
 
-def test_narration_falls_back_when_the_call_fails(monkeypatch, local_model):
+def test_narration_falls_back_when_the_call_fails(monkeypatch, local_model, capsys):
     def boom(*args, **kwargs):
         raise RuntimeError("rate limited")
 
@@ -108,6 +108,18 @@ def test_narration_falls_back_when_the_call_fails(monkeypatch, local_model):
     assert result.source == "fallback"
     assert result.value.impact_summary == "deterministic summary"
     assert "rate limited" in result.detail
+    # ...and says why. A silent degrade reads as "the model seems quiet"
+    # rather than "the credential is broken".
+    assert "rate limited" in capsys.readouterr().out
+
+
+def test_a_missing_provider_does_not_warn(local_model, monkeypatch, capsys):
+    """Only a *failure* is noisy; an unconfigured provider is a choice the
+    banner already reports."""
+    for name in ("LLM_BASE_URL", "LLM_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    llm.narrate("P2", {}, FINDINGS, [], "deterministic summary")
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize("variable", ["ANTHROPIC_API_KEY", "LLM_API_KEY"])
@@ -173,7 +185,7 @@ def test_judge_uses_the_model_when_available(monkeypatch, local_model):
     assert captured["schema"] is ResolutionJudgement
 
 
-def test_judge_fails_closed_when_the_call_fails(monkeypatch, local_model):
+def test_judge_fails_closed_when_the_call_fails(monkeypatch, local_model, capsys):
     """An unreachable model must never resume a blocked pipeline."""
     def boom(*args, **kwargs):
         raise RuntimeError("connection reset")
@@ -183,3 +195,4 @@ def test_judge_fails_closed_when_the_call_fails(monkeypatch, local_model):
     assert result.value.resolved is False
     assert result.value.confidence == 0.0
     assert "staying paused" in result.value.reason
+    assert "connection reset" in capsys.readouterr().out
