@@ -1,5 +1,11 @@
 # VM setup — Oracle Cloud host for the Hadoop stack
 
+> **DROPPED — 2026-09-20.** The real Hadoop stack this document specifies is not being
+> built. See [`ROADMAP.md`](../../../ROADMAP.md) §0 for the reasoning. The project's scope is
+> now one loop: a set of logs in, a Slack alert out, and the logs behind it downloadable
+> (`logsets/`, `scripts/logset.py`). This file is kept as a record of the design decisions,
+> not as work to do.
+
 Manual provisioning steps for roadmap B2 / Phase 1 of
 [`../IMPLEMENTATION_GUIDE.md`](../IMPLEMENTATION_GUIDE.md) §4.2. Run the parts in order.
 

@@ -12,8 +12,13 @@ reports/incidents/*.json
 reports/incidents/*.md
 reports/evidence/*
 reports/slack/*
+reports/logsets/*
+
+# Third-party log corpus, fetched by scripts/fetch_logs.py (not vendored)
+logsets/corpus/
 *.xml
 !reports/.gitkeep
 !reports/incidents/.gitkeep
 !reports/evidence/.gitkeep
 !reports/slack/.gitkeep
+!reports/logsets/.gitkeep

@@ -1,12 +1,68 @@
 # ROADMAP — ai-qa-agent
 
-**Status date:** 2026-09-17
-**Scope:** what is built, what is next, and how `infra/bankdemo/` (Track B) fits into it.
+**Status date:** 2026-09-20
+**Scope:** what the project is, after the 2026-09-20 scope reset.
 
-This document supersedes the phase tables in `expansion-plan.md` §6 and `IMPLEMENTATION.md`
-Phases 2–5 for anything involving the Hadoop stack. Those documents remain accurate about
-*intent*; this one is accurate about *sequence*, because it was written against the source
-rather than against the README.
+---
+
+## 0. Scope reset — 2026-09-20
+
+**The project is one loop: a set of logs in, a Slack alert out, and the exact logs behind
+that alert downloadable.** Everything below §1 was written before this decision and is kept
+as the record of how the project got here; where it conflicts with this section, this section
+wins.
+
+### What this deletes
+
+**Track B — the real Hadoop stack — is dropped.** Not deferred, not blocked on a human:
+dropped. `infra/bankdemo/` (the OCI VM, HDFS + YARN + Spark-on-YARN, the 17-fault catalogue,
+the scheduler, the bundle broker) will not be built. So are B2–B6 in §4 below, and the two
+Compose profiles' worth of stack work before them.
+
+The reasoning, stated plainly so it can be defended:
+
+- **It was the expensive part and not the interesting part.** The triage layer — deterministic
+  severity, incident records, approval gates, runbooks, Slack — is what the project is about,
+  and it was finished. The remaining 12–20 evenings of §5 bought a *source of logs*, which is
+  not a capability anyone was going to be impressed by.
+- **Real logs from those systems already exist in public.** HDFS, YARN, Spark and ZooKeeper
+  logs from real clusters are published (LogHub). Reading a real Hadoop log does not require
+  running Hadoop, and the agent's job has always been to read logs.
+- **It kept the project in a permanent "not yet" state.** Both human prerequisites in §1 (a
+  Slack workspace, an OCI VM) gated everything, so every status line was a promise. The
+  log-set path has no prerequisites at all: `python scripts/logset.py` runs on a fresh clone.
+
+The bankdemo specs stay in the tree, marked as dropped rather than deleted. They are a record
+of a real design decision — including the Hive-does-not-fit and Impala-substitution reasoning,
+which is still worth discussing — and deleting them would erase that.
+
+### What the project is now
+
+| Piece | Where |
+|---|---|
+| Log sources (15) and error signatures (14) | `logsets/catalog.py` |
+| Public log corpus, fetched not vendored, with a generated fallback | `logsets/corpus.py`, `scripts/fetch_logs.py` |
+| Per-session mixing, ground-truth manifest, zip bundle | `logsets/session.py` |
+| Analysis → signals → severity → incident → Slack alert | `logsets/triage.py` |
+| CLI / HTTP entry points | `scripts/logset.py`, `POST /logset/run`, `GET /logset/{id}/download` |
+
+Everything the triage layer already had is reused unchanged: `agent/severity.py`,
+`config/severity.yml`, `agent/incident.py`, `agent/runbooks.py`, `agent/slack_client.py`,
+`agent/slack_blocks.py`, `scripts/incident_metrics.py`.
+
+### What is left to do
+
+1. **Close the Slack prerequisite (B1 below, still worth doing).** Everything runs in
+   `SLACK_MODE=stub`; one evening of workspace setup turns "code complete, never run live"
+   into "running". This is now the *only* human prerequisite in the project.
+2. **Score detection over many sessions.** `logsets.triage.score()` already reports recall per
+   session against the manifest's ground truth. Running a few hundred seeded sessions and
+   reporting recall per signature is the measurement B5 was supposed to enable — and it costs
+   a script, not a cluster.
+3. **Grow the signature catalogue against the real corpus.** The corpus contains real errors
+   no signature matches yet; each one is a candidate signature with a real log line behind it.
+
+Anything below this line that contradicts those three is superseded.
 
 ---
 
@@ -24,28 +80,29 @@ Verified against the working tree, not the README: `234 passed` in `tests/pytest
 | Evidence bundle | **Done, against the mock stack** | `agent/evidence.py`, `scripts/first-15-minutes.sh` |
 | MTTA / MTTR | **Done.** Real Slack-thread derived, not synthetic | `agent/incident.py::sync_slack_engagement`, `scripts/incident_metrics.py` |
 | Agent tools | **Done, against Postgres/Kafka mock** | `agent_tools/{sql_validator,log_analyser,schema_comparator}.py` |
-| Pipeline under test | **Mock only.** No Hadoop anywhere | `mock_pipeline/`, 5 failure modes |
-| Hadoop stack | **Not started** | — |
-| Scorecard | **Not started.** No ground truth to score against yet | — |
+| Log-set triage | **Done.** The main path, as of the §0 reset | `logsets/`, `scripts/logset.py`, `tests/pytest/test_logsets.py` |
+| Pipeline under test | **Mock only**, and now a secondary path | `mock_pipeline/`, 5 failure modes |
+| Hadoop stack | **Dropped** — see §0 | — |
+| Scorecard | **Partly there.** Per-session recall against the mixer's ground truth; no multi-session report yet | `logsets.triage.score()` |
 
-**The honest summary:** the triage layer is real and tested; the thing it triages is a Python
-mock. Every remaining phase is about replacing the mock with something that breaks for real,
-and then measuring how well the triage layer handles it.
+**The honest summary:** the triage layer is real and tested, and what it triages is now a log
+set mixed from real public production logs with known failure signatures injected — checked
+against ground truth, downloadable, different every session. The Python mock pipeline is still
+there behind the earlier tool-use path.
 
-### The two human prerequisites that gate everything
+### The human prerequisites that used to gate everything
 
-Neither is a coding task, both block a phase, and both have been outstanding since Phase 1:
+**Only the first still applies** — the §0 reset dropped the work the second one gated:
 
 1. **Slack workspace + app + bot token + 4 channels + tunnel.** `docs/PHASE1_SETUP.md` lists
    every step. Until this exists, Phase 1 is "code complete, unverified" — which is an honest
    thing to say in an interview, but a weaker one than "running."
-2. **OCI VM provisioned.** Walkthrough in
-   [`infra/bankdemo/docs/VM_SETUP.md`](infra/bankdemo/docs/VM_SETUP.md); spec in
-   `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §4.2. Blocks all of Track B.
+2. ~~**OCI VM provisioned.**~~ **Moot** — Track B is dropped (§0). The walkthrough in
+   [`infra/bankdemo/docs/VM_SETUP.md`](infra/bankdemo/docs/VM_SETUP.md) stays as a record.
 
 ---
 
-## 2. The decision that reshapes the plan
+## 2. The decision that reshapes the plan *(pre-reset history — superseded by §0)*
 
 `expansion-plan.md` §5 put the Hadoop stack in Docker Compose on the laptop, behind a
 `--profile hadoop`. `infra/bankdemo/` puts it on a free OCI VM instead. **The VM wins**, for
@@ -128,7 +185,7 @@ copy of the agent side:
 
 ---
 
-## 4. Roadmap
+## 4. Roadmap *(pre-reset — B2 onward is dropped; see §0)*
 
 Phases are lettered to avoid collision with `IMPLEMENTATION.md`'s existing Phase 0–5 numbering.
 
@@ -291,7 +348,7 @@ the answer keys. See `infra/bankdemo/docs/VM_SETUP.md` §14.
 
 ---
 
-## 5. Sequencing at a glance
+## 5. Sequencing at a glance *(pre-reset — not being executed)*
 
 ```
 B0 docs ──┬─► B1 Slack [HUMAN]  ────────────────────────────────┐
@@ -312,7 +369,7 @@ A working rig with four faults and a real scorecard beats seventeen faults and n
 
 ---
 
-## 6. Risks, ranked
+## 6. Risks, ranked *(pre-reset — Track B risks are moot)*
 
 | Risk | Impact | Mitigation |
 |---|---|---|

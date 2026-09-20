@@ -1,5 +1,9 @@
 # demo-broker — visitor-triggered runs without exposing the VM
 
+> **DROPPED — 2026-09-20.** This component depended on the Hadoop stack in
+> `infra/bankdemo/`, which is not being built. See [`ROADMAP.md`](../../ROADMAP.md) §0.
+> Kept as a record of the design, not as work to do.
+
 **Status: specification only. Not built.** Depends on roadmap B3 (the run lifecycle) existing
 first. Tier 1 — the live demo feed in `infra/bankdemo/IMPLEMENTATION_GUIDE.md` §9.6 — is the
 prerequisite and the fallback; this component is strictly additive and the site must keep

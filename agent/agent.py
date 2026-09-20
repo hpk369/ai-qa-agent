@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -28,6 +29,7 @@ from typing import Any
 import anthropic
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -41,6 +43,8 @@ from agent.slack_blocks import build_parent_message
 from agent.slack_client import SlackClient
 from agent.slack_verify import verify_slack_request
 from agent.tools_manifest import TOOLS
+from logsets.session import DEFAULT_ROOT, bundle, list_sessions, load_session
+from logsets.triage import analyse_logset, logset_summary, score, triage_logset
 
 MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-5")
 TOOL_SERVER_BASE = (
@@ -354,6 +358,90 @@ async def slack_action(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(process_slack_action, action_payload)
     return {"ok": True}
+
+
+# ---------- Log-set endpoints ----------
+#
+# The log-set path is the project's scope: a session's log set is mixed,
+# analysed, classified by the same deterministic classifier the tool-use
+# path uses, alerted to Slack, and downloadable as the exact zip of logs
+# that produced the alert. It needs no Claude API key and no pipeline
+# stack — only the logs.
+
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+class LogSetRequest(BaseModel):
+    seed: int | None = None
+    session_id: str | None = None
+    sources: list[str] | None = None
+    source_count: int | None = None
+    injections: int | None = None
+    clean: bool = False
+    notify: bool = True
+
+
+def _validate_session_id(session_id: str) -> str:
+    """Path-segment safety: session ids reach the filesystem, so anything
+    that is not one of our own generated ids is rejected outright rather
+    than normalised."""
+    if not SESSION_ID_PATTERN.match(session_id) or session_id in {".", ".."}:
+        raise HTTPException(status_code=400, detail="invalid session id")
+    return session_id
+
+
+@app.post("/logset/run")
+def logset_run(request: LogSetRequest):
+    """Mix a log set for this session, triage it, alert Slack, and return
+    the incident plus the download link."""
+    if request.session_id:
+        _validate_session_id(request.session_id)
+    try:
+        return triage_logset(**request.model_dump())
+    except ValueError as exc:  # unknown source name
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/logset")
+def logset_list():
+    return {"sessions": list_sessions(), "root": str(DEFAULT_ROOT)}
+
+
+@app.get("/logset/{session_id}")
+def logset_detail(session_id: str):
+    """Re-read a previously built log set. Read-only: no incident opens
+    and nothing is posted to Slack — that happened when it was built."""
+    _validate_session_id(session_id)
+    try:
+        logset = load_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    analysis = analyse_logset(logset)
+    archive = bundle(logset)
+    return {
+        "logset": logset_summary(logset, analysis, archive),
+        "signals": analysis["signals"],
+        "score": score(logset, analysis),
+    }
+
+
+@app.get("/logset/{session_id}/download")
+def logset_download(session_id: str):
+    """Download this session's log set — every log file, the manifest with
+    the mixer's ground truth, and a README."""
+    _validate_session_id(session_id)
+    try:
+        logset = load_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    archive = bundle(logset, force=True)
+    return FileResponse(
+        path=archive,
+        media_type="application/zip",
+        filename=f"{session_id}.zip",
+    )
 
 
 @app.get("/health")

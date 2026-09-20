@@ -207,3 +207,79 @@ def build_thread_reply(text: str) -> tuple[list[dict[str, Any]], str]:
     blocks = [{"type": "section", "text": _mrkdwn(text)}]
     validate_blocks(blocks)
     return blocks, text
+
+
+def build_logset_reply(summary: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    """
+    The thread reply that accompanies a log-set incident: which files were
+    read, what was recognised in them, and where to download the exact set
+    that produced the alert.
+
+    Takes the plain summary dict from logsets.triage.logset_summary rather
+    than an Incident — the log set is what this message is about, and
+    keeping it a dict keeps this module free of a dependency on logsets/.
+    """
+    files = summary.get("files", [])
+    findings = summary.get("findings", [])
+
+    file_lines = [
+        f"• `{entry['file']}` — {entry['line_count']} lines, "
+        f"{entry['error_count']} error / {entry['warn_count']} warn "
+        f"({entry['provider']} background)"
+        for entry in files[:EVIDENCE_DISPLAY_LIMIT]
+    ]
+    remaining = len(files) - len(file_lines)
+    if remaining > 0:
+        file_lines.append(f"_and {remaining} more file(s) in the bundle_")
+
+    header = (
+        f"*Log set* `{summary.get('session_id', 'unknown')}` "
+        f"(seed `{summary.get('seed')}`) — {len(files)} file(s), "
+        f"{summary.get('lines_scanned', 0)} lines scanned, "
+        f"{summary.get('error_count', 0)} error / {summary.get('warn_count', 0)} warn lines."
+    )
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": _mrkdwn(header)},
+        {"type": "section", "text": _mrkdwn("*Files read:*\n" + ("\n".join(file_lines) or "_none_"))},
+    ]
+
+    if findings:
+        finding_lines = [
+            f"• *{finding['title']}* (`{finding['signature_id']}`) — "
+            f"`{finding['file']}` line {finding['line']}"
+            for finding in findings[:EVIDENCE_DISPLAY_LIMIT]
+        ]
+        extra = len(findings) - len(finding_lines)
+        if extra > 0:
+            finding_lines.append(f"_and {extra} more match(es)_")
+        recognised = "*Recognised signatures:*\n" + "\n".join(finding_lines)
+    else:
+        recognised = "*Recognised signatures:* none — no catalogued failure mode matched"
+
+    unrecognised = summary.get("unrecognised_error_count", 0)
+    if unrecognised:
+        recognised += f"\n_{unrecognised} unrecognised error line(s) in the set_"
+    blocks.append({"type": "section", "text": _mrkdwn(recognised)})
+
+    download = summary.get("download", {}) or {}
+    url, archive = download.get("url", ""), download.get("archive", "")
+    if url:
+        blocks.append({
+            "type": "section",
+            "text": _mrkdwn("*Download the logs behind this alert*"),
+            "accessory": {
+                "type": "button",
+                "text": _plain("⬇ Download log set"),
+                "url": url,
+                "action_id": "logset_download",
+            },
+        })
+    elif archive:
+        blocks.append({"type": "section", "text": _mrkdwn(f"*Log set bundle:* `{archive}`")})
+
+    fallback_text = (
+        f"Log set {summary.get('session_id', 'unknown')}: {len(findings)} recognised "
+        f"signature(s), {summary.get('error_count', 0)} error lines"
+    )
+    validate_blocks(blocks)
+    return blocks, fallback_text

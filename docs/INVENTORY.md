@@ -1,5 +1,7 @@
 # Repository Inventory — T0.1
 
+> **Historical — 2026-09-20.** This inventory describes the codebase as Phase 0 began. It predates the log-set path in `logsets/` and the scope reset in [`ROADMAP.md`](../ROADMAP.md) §0.
+
 **Purpose:** ground truth for the expansion in `expansion-plan.md` / `IMPLEMENTATION.md`. Built by reading every source file, not the README. Anything below that contradicts the README is called out explicitly in §8.
 
 ---

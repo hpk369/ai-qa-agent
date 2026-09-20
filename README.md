@@ -2,25 +2,152 @@
 
 **[▶ Live Demo](https://demo.inkandinfra.com/)** — interactive pipeline simulator, no setup required. Walks through severity classification, an incident record, and a Slack Block Kit preview with working Approve/Reject/Escalate buttons — see [demo pages](#demo-pages) below for exactly what is and isn't live in it.
 
-When a production ETL job breaks, the question that matters isn't "did the pipeline pass or fail" — it's "what's the severity, who's affected, and what do I do in the first fifteen minutes." This project is an AI-assisted triage agent, orchestrated via **n8n**, that watches a Big Data pipeline, classifies the severity of what it finds using a deterministic, config-driven ruleset, and opens a structured incident record rather than a pass/fail verdict. Claude (in tool-use mode) reports the evidence; a plain Python module decides how serious it is, so the same evidence always yields the same call. The result routes to the appropriate validation framework — Robot Framework to confirm restoration, pytest to isolate a root cause — the same way an on-call analyst would triage, escalate, and verify a fix.
+When a production ETL job breaks, the question that matters isn't "did the pipeline pass or fail" — it's "what's the severity, who's affected, and what do I do in the first fifteen minutes." This project answers that from the one artifact an on-call analyst always has: **the logs**.
 
-This repository is mid-migration from an earlier "AI QA pipeline" demo into this triage-focused, Hadoop-stack-aligned system. See [`expansion-plan.md`](expansion-plan.md) for the rationale and [`IMPLEMENTATION.md`](IMPLEMENTATION.md) for the task-by-task build spec being executed against this codebase; [`docs/INVENTORY.md`](docs/INVENTORY.md) is a from-source inventory of the codebase as Phase 0 began.
+Each session gets its own log set — a few log files mixed from a corpus of real, public production logs (Spark, YARN, HDFS, ZooKeeper, OpenStack, syslog, sshd, and more) with ETL failure signatures injected into them. The agent reads the log text, derives severity signals from it, classifies them with a deterministic config-driven ruleset, opens a structured incident record, and **posts a Slack alert**. The thread reply carries a link to download the exact log set that produced the alert, so the call can be checked against the evidence.
 
-## Phase status
+## Scope
 
-**Phase 0 (triage reframe) and Phase 1 (Slack incident channel, runbooks, evidence, MTTA/MTTR) are both complete.** The pipeline still runs against the original Postgres/Kafka mock stack described below — the Hadoop stack in `expansion-plan.md` Track B has **not been built yet**; nothing in this README should be read as claiming it has.
+**One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** That is the project. It runs with no API key, no cluster, and no services — `python scripts/logset.py` does the whole thing.
 
-**Track B has changed shape.** It now targets a dedicated Oracle Cloud VM rather than Docker Compose — the full stack needs ~12 GB, which is the entire budget of a laptop that also has to run the tooling, and a VM reproduces the host-level failures (disk full, inode exhaustion, OOM kills, systemd units that won't start) that Compose cannot. The specification lives in [`infra/bankdemo/`](infra/bankdemo/) and the sequencing in [`ROADMAP.md`](ROADMAP.md). Two consequences worth stating plainly: there is **no Hive** (it does not fit the memory budget — Spark SQL over HDFS Parquet covers the same ground, and nothing here claims otherwise), and the Postgres/Kafka mock is now a **permanent** lightweight demo path rather than something to be retired. `expansion-plan.md` §5–§6 and `IMPLEMENTATION.md` Phases 2–5 are superseded for the Hadoop work and carry notes saying so.
+What is deliberately **not** here:
 
-Phase 0: the agent reports signals rather than a verdict; `agent/severity.py` + `config/severity.yml` classify severity deterministically; every non-clean run opens a structured **incident record** (`agent/incident.py`), the system of record; `/agent/run` returns `{run_id, incident, clean, checks_performed, duration_ms}` (see [Agent Response Contract](#agent-response-contract)); terminology swept throughout (`docs/app.py`'s demo server is the one deliberate exception — see [demo pages](#demo-pages) below).
+- **A real Hadoop stack.** The HDFS/YARN/Hive/Spark-on-YARN build (`expansion-plan.md` Track B, `infra/bankdemo/`) is **dropped**, not pending. It cost more time than it returned, and the triage layer never needed it: real *logs* from those systems are what the agent reads, and those are available publicly without standing a cluster up. The specs stay in the tree as a record of the decision — see [`ROADMAP.md`](ROADMAP.md) §0.
+- **A live Slack workspace.** `SLACK_MODE=stub` (the default) writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post for real — [`docs/PHASE1_SETUP.md`](docs/PHASE1_SETUP.md) lists every prerequisite. Nothing in this repo has been run against a live workspace, and nothing here claims it has.
 
-Phase 1: `agent/slack_client.py` (bot-token Slack Web API client), `agent/slack_blocks.py` (Block Kit incident messages, golden-file tested), `agent/slack_verify.py` (HMAC request verification) — the agent server posts every incident to Slack itself and exposes `/slack/action` for button interactivity, not n8n (see [`docs/workflow-map.md`](docs/workflow-map.md) for why). `agent/incident.py::record_approval_decision` is the full Approve/Reject/Escalate gate (a second decision on an already-decided incident is rejected and reported in-thread, never silently ignored). `agent/runbooks.py` deterministically links every incident to one of five runbooks (`docs/runbooks/`), each with real, runnable diagnostic commands. `agent/evidence.py` collects an evidence bundle on every incident open, and `scripts/first-15-minutes.sh` is a standalone (no Python) equivalent for an on-call engineer working directly on a broken machine — actually run against this repo's own sandbox to confirm it degrades gracefully with no Docker/Kafka/tool-server running. `agent/incident.py::resolve_incident` syncs real Slack thread replies/reactions for MTTA, computes MTTR, and updates the Slack parent message to show RESOLVED with both figures; `scripts/incident_metrics.py` reports count-by-severity, median/p90 MTTA/MTTR, and the false-positive rate from `reports/incidents/*.json`.
+What was already built and still stands, because the log-set path reuses all of it: deterministic severity (`agent/severity.py` + `config/severity.yml`), the incident record and its approval gate (`agent/incident.py`), Block Kit messages (`agent/slack_blocks.py`), five runbooks with deterministic selection (`agent/runbooks.py`), and MTTA/MTTR metrics (`scripts/incident_metrics.py`).
 
-**None of this has run against a live Slack workspace** — this environment has none of Phase 1's human prerequisites (a dedicated Slack workspace/app/bot token/channels/tunnel). `SLACK_MODE=stub` (the default) is exercised throughout instead, writing every payload Slack would have received to `reports/slack/` with no network call, including a full open→acknowledged→approved→remediating→verifying→resolved lifecycle demonstration run end-to-end against the real code. Set `SLACK_MODE=live` and populate `.env` once those prerequisites exist — see [`docs/PHASE1_SETUP.md`](docs/PHASE1_SETUP.md) for exactly how to get each one.
+The earlier Claude tool-use path (`POST /agent/run` against the Postgres/Kafka mock, driven by n8n) is still in the tree and still tested. It is no longer the main path.
 
-<a id="demo-pages"></a>**Demo pages.** `docs/index.html` — what actually renders at the Live Demo link above — was rewritten ahead of `IMPLEMENTATION.md`'s Phase 5 to reflect Phases 0–1 for real: it's a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s actual output for each failure mode (the exact values `tests/pytest/test_agent_response.py` pins), including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend, so it works unmodified on GitHub Pages; the Claude tool-use call itself is not live in it. `docs/index_v2.html` (an older, unlinked visual redesign of the pre-triage demo) was deleted rather than carried forward. `docs/app.py` — a local-only SSE demo server, not what GitHub Pages serves — is the one piece still on the pre-T0.4 `verdict` contract; see the note at the top of that file.
+<a id="demo-pages"></a>**Demo page.** [`docs/index.html`](https://demo.inkandinfra.com/) is a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s output per failure mode, including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend; the Claude call itself is not live in it, and it still shows the mock-pipeline failure modes rather than the log-set path.
 
-## Architecture
+## Log-set triage
+
+```bash
+# Optional: fetch the public log corpus (~3 MB, gitignored, not vendored).
+# Skip it and background lines are generated instead — the manifest says which.
+python scripts/fetch_logs.py
+
+# Mix a log set for this session, triage it, alert Slack, print the download path
+python scripts/logset.py
+
+python scripts/logset.py --seed 2026            # reproduce a set exactly
+python scripts/logset.py --sources spark-executor,kafka-consumer
+python scripts/logset.py --injections 3 --count 5
+python scripts/logset.py --clean --no-slack     # background only, nothing injected
+python scripts/logset.py --list-sources
+python scripts/logset.py --show LS-...          # re-read a set without alerting
+```
+
+```
+Log set   LS-20260920-001007-07ea  (seed 2026)
+Scanned   1207 lines across 3 file(s) — 2 error / 390 warn
+
+  FILE                         BACKGROUND   LINES   ERR  WARN
+  openstack-nova.log           real           413     0     6
+  zookeeper.log                real           373     1   285
+  hive-metastore.log           generated      421     1    99
+
+Recognised signatures:
+  SIG-013-ZK-SESSION-EXPIRED   zookeeper.log:65  ZooKeeper session expired
+  SIG-010-CONTROL-TOTAL        hive-metastore.log:120  Control total mismatch between source and target
+
+Incident  INC-20260920-0010  P1  — approval required
+Rationale control_total_mismatch
+Runbook   docs/runbooks/RB-005-job-failure.md
+Slack     posted to C_ALERTS (ts 1789863007.824481)
+Detection 2/2 injected signature(s) found (recall 1.0)
+
+Download  reports/logsets/LS-20260920-001007-07ea.zip
+```
+
+Over HTTP, the same thing (`python agent/agent.py`, or `docker compose up agent_server`):
+
+| Endpoint | What it does |
+|---|---|
+| `POST /logset/run` | Mix this session's set, triage it, alert Slack, return the incident and the download link. Body: `{seed, sources, source_count, injections, clean, notify, session_id}` — all optional |
+| `GET /logset` | Sessions built so far |
+| `GET /logset/{session_id}` | Re-read a set: files, findings, signals, detection score. Read-only — opens no incident, posts nothing |
+| `GET /logset/{session_id}/download` | The zip: every log file, the manifest, a README |
+
+Set `AGENT_PUBLIC_URL` and the Slack thread reply renders a **⬇ Download log set** button pointing at that endpoint instead of a local path.
+
+### How a session's set is mixed
+
+```
+          logsets/corpus/            logsets/catalog.py
+   real public logs (LogHub)     14 ETL error signatures
+   or generated background                │
+                │                         │
+                └──────────┬──────────────┘
+                           ▼
+              logsets/session.py  — 3-5 sources, 120-420 lines each,
+              1-4 signatures injected at random offsets, seeded
+                           │
+                   ┌───────┴────────┐
+                   ▼                ▼
+         reports/logsets/<id>/   manifest.json  (ground truth:
+         *.log                    what went in, and where)
+                   │
+                   ▼
+              logsets/triage.py  — regex match → signals
+                   │
+                   ▼
+         agent/severity.py + config/severity.yml   (deterministic)
+                   │
+              ┌────┴─────┐
+         clean │          │ incident (P1-P4)
+          no   │          ▼
+         alert │   agent/incident.py  →  Slack parent message
+               │                      →  thread reply + download link
+               │                      →  reports/logsets/<id>.zip
+```
+
+The seed fixes the content of a set — same seed, same sources, same signatures, same places. Timestamps re-anchor to the build time, so a rebuild is the same set dated today; pass a fixed anchor (`build_session(started_at=...)`) for a byte-identical rebuild.
+
+**The manifest's ground truth is never read by the triage path.** The agent works from the log text alone; `logsets.triage.score()` compares its findings against the manifest afterwards and reports recall, which is what makes "it found the thing" a measurement rather than a claim. A test asserts the analysis is unchanged when the ground truth is deleted.
+
+**Unrecognised errors are reported as exactly that.** An `ERROR` line no signature matches raises `log_anomaly_no_data_impact` — a P4, "something is wrong and its data impact is not established" — rather than being guessed at or dropped. Real logs contain real errors, so a set mixed from the real corpus is rarely perfectly clean, and that is the honest answer.
+
+### Log sources
+
+`python scripts/logset.py --list-sources` prints these. ETL-side sources are what signatures get injected into; the rest are carried as the infrastructure noise a real analyst has to read past.
+
+| Source | Role | Background |
+|---|---|---|
+| `spark-executor`, `yarn-appmaster`, `hdfs-datanode`, `zookeeper` | ETL (triaged) | Real — LogHub Spark / Hadoop / HDFS / ZooKeeper |
+| `kafka-consumer`, `hive-metastore`, `airflow-scheduler` | ETL (triaged) | Generated — nobody publishes these |
+| `os-syslog`, `openstack-nova`, `edge-sshd`, `edge-httpd`, `bluegene-ras`, `hpc-cluster`, `thunderbird-cluster`, `proxifier` | Infrastructure noise | Real — LogHub |
+
+Background lines come from the [LogHub](https://github.com/logpai/loghub) collection of real system logs, fetched by `scripts/fetch_logs.py` into `logsets/corpus/` (gitignored — third-party research datasets are fetched, not vendored). Every log file in a session's manifest records whether its background was `real` or `generated`.
+
+### Error signatures
+
+`logsets/catalog.py`. Each is a regex plus a function turning the matched text into the signals `config/severity.yml` already classifies — the severity of a signature is not written next to it, it is whatever the classifier makes of its signals.
+
+| Signature | Signal derived | Typical severity |
+|---|---|---|
+| `SIG-001-ROW-SHORTFALL` | `row_variance_pct` (read off the line) | P2 / P3 |
+| `SIG-002-SCHEMA-DRIFT` | `job_failed_no_path_to_sla` | P1 |
+| `SIG-003-NULL-SPIKE` | `null_rate_increase_pct` per column | P3 / P4 |
+| `SIG-004-CONSUMER-LAG` | `sla_breach_projected` past the lag threshold | P2 |
+| `SIG-005-CONTAINER-OOM` | `job_failed_no_path_to_sla` | P1 |
+| `SIG-006-DISK-FULL` | `target_unavailable` | P1 |
+| `SIG-007-MISSING-BLOCK` | `target_unavailable` | P1 |
+| `SIG-008-CONNECTION-REFUSED` | `target_unavailable` | P1 |
+| `SIG-009-JOB-FAILED` | `job_failed_no_path_to_sla` | P1 |
+| `SIG-010-CONTROL-TOTAL` | `control_total_mismatch` | P1 |
+| `SIG-011-SLOW-STAGE` | `job_duration_vs_baseline_pct` | P3 |
+| `SIG-012-DOWNSTREAM-BLOCKED` | `downstream_jobs_blocked` (summed across hits) | P2 |
+| `SIG-013-ZK-SESSION-EXPIRED` | `log_anomaly_no_data_impact` | P4 |
+| `SIG-014-KERBEROS` | `log_anomaly_no_data_impact` | P4 |
+| *(none matched)* | `log_anomaly_no_data_impact` | P4 |
+
+Two hits of the same signature are not twice as bad — signals merge by taking the worse value, except blocked downstream jobs, which add up. A test renders every signature 25 times and asserts the analyser finds it and that its signals classify to a real severity: a failure mode the mixer can inject but the analyser cannot find would be the worst kind of bug here.
+
+## The earlier tool-use path
+
+Still in the tree, still tested, no longer the main path: a Claude tool-use loop over the Postgres/Kafka mock pipeline, orchestrated by n8n.
 
 ```
 Kafka event / cron / webhook
@@ -133,6 +260,16 @@ An LLM asked to both observe evidence and assign a severity label will occasiona
 ## Quick Start
 
 ```bash
+pip install -r requirements.txt
+python scripts/fetch_logs.py     # optional — real background logs
+python scripts/logset.py         # mix, triage, alert, print the download path
+```
+
+That is the whole main path: no API key, no Docker, no Slack workspace. The alert lands in `reports/slack/` and the log set in `reports/logsets/`.
+
+For the earlier tool-use path (Claude + n8n + the mock pipeline) you need the stack:
+
+```bash
 cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
 
@@ -141,7 +278,7 @@ docker compose up
 
 Then open n8n at http://localhost:5678 (admin/password) and import `n8n_workflows/qa_agent_workflow.json`.
 
-## Demo: Trigger Failure Modes
+## Demo: Trigger Failure Modes (mock pipeline)
 
 ```bash
 # Clean run → no incident → Robot Framework
@@ -185,8 +322,11 @@ These call exactly the same code the real agent uses (`agent.agent.build_respons
 ```bash
 pip install -r requirements.txt
 
-# pytest suite (no services required — uses mock data)
+# pytest suite (no services required — 297 tests, nothing touches the network)
 pytest tests/pytest/ -v
+
+# just the log-set path
+pytest tests/pytest/test_logsets.py -v
 
 # Robot Framework (requires tool server running)
 TOOL_SERVER_HOST=localhost python agent_tools/tool_server.py &
@@ -199,24 +339,29 @@ robot --outputdir reports/robot tests/robot/acceptance.robot
 ai-qa-agent/
 ├── expansion-plan.md       # Strategy: why this project is being repositioned, and how
 ├── IMPLEMENTATION.md       # Task-by-task build spec (source of truth for what's built and in what order)
-├── mock_pipeline/          # Simulated Big Data pipeline + failure injection
+├── logsets/                # THE MAIN PATH — log sources + error signatures (catalog.py),
+│                           #   corpus fetch/fallback (corpus.py), per-session mixing
+│                           #   (session.py), analysis → severity → incident → Slack (triage.py)
+├── mock_pipeline/          # Simulated Big Data pipeline + failure injection (earlier path)
 ├── agent_tools/            # SQL validator, log analyser, schema comparator + FastAPI server
 ├── agent/                  # Claude tool-use loop, severity classifier, incident records, Slack client/blocks/verify, runbook selection, evidence bundle
 ├── config/                 # severity.yml — thresholds live here, never in code
 ├── schemas/                # incident.schema.json — the incident record's JSON Schema
-├── scripts/                # first-15-minutes.sh, incident_metrics.py, demo_incident.py, demo_all.sh
+├── scripts/                # logset.py, fetch_logs.py, first-15-minutes.sh,
+│                           #   incident_metrics.py, demo_incident.py, demo_all.sh
 ├── tests/
 │   ├── pytest/             # Unit/regression tests for every module above
 │   ├── fixtures/blocks/    # Golden-file Block Kit fixtures (agent/slack_blocks.py)
 │   └── robot/              # Keyword-driven E2E validation checks
 ├── n8n_workflows/          # Importable n8n workflow JSON (Slack posting lives in agent/, not here — see docs/workflow-map.md)
 ├── docs/                   # INVENTORY.md, workflow-map.md, runbooks/ + the live demo (pre-triage contract; see Phase status)
-├── reports/                # Test output, persisted incidents, evidence bundles, stub Slack payloads
+├── reports/                # Session log sets + their zips, persisted incidents, evidence
+│                           #   bundles, stub Slack payloads, test output
 ├── docker-compose.yml
 └── .env.example
 ```
 
-## Failure Modes
+## Failure Modes (mock pipeline)
 
 | Mode | Description | Failing Tool(s) | Signal reported | Resulting severity |
 |---|---|---|---|---|
@@ -230,7 +375,9 @@ ai-qa-agent/
 
 | Layer | Technology |
 |---|---|
-| Workflow orchestration | n8n (self-hosted via Docker) |
+| Log corpus | [LogHub](https://github.com/logpai/loghub) public system logs, fetched at setup (`scripts/fetch_logs.py`), with a generated fallback |
+| Log-set mixing & analysis | Python 3.11 (`logsets/`) — seeded mixing, regex signature catalogue, no model in the loop |
+| Workflow orchestration | n8n (self-hosted via Docker) — earlier path only |
 | LLM agent | Claude API, tool-use mode — reports signals, not severity |
 | Severity classification | Deterministic Python, config-driven (`agent/severity.py` + `config/severity.yml`) |
 | Tool API server | Python 3.11 + FastAPI |
@@ -242,4 +389,4 @@ ai-qa-agent/
 | CI integration | Jenkins webhook |
 | Notifications | Slack bot-token app (`agent/slack_client.py`), posted directly by the Python agent — threaded, editable in place. `SLACK_MODE=stub` (default) writes payloads to `reports/slack/` with no live workspace required; see [Phase status](#phase-status). |
 
-A Hadoop-aligned stack (HDFS, YARN, Hive, Spark-on-YARN, and an honestly-scoped Oozie/Impala substitution) is planned in `expansion-plan.md` Track B and `IMPLEMENTATION.md` Phase 2 onward. Nothing above should be read as claiming that stack exists in this repository yet.
+A Hadoop-aligned stack (HDFS, YARN, Hive, Spark-on-YARN) was planned in `expansion-plan.md` Track B and `infra/bankdemo/`. It is **dropped** — see [Scope](#scope) and [`ROADMAP.md`](ROADMAP.md) §0. What the agent reads instead is real *logs* from those systems, which are available publicly without running one.
