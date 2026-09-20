@@ -477,3 +477,89 @@ def test_the_banner_names_the_credential_source(monkeypatch, federated):
     monkeypatch.setattr(AnthropicProvider, "configured", staticmethod(lambda: True))
     assert "workload identity federation" in providers.describe()
     assert "claude-haiku-4-5" in providers.describe()
+
+
+# ---------- The Console snippet's shape: a JWT in a plain variable ----------
+
+FED_IDS = {
+    "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_test",
+    "ANTHROPIC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000000",
+    "ANTHROPIC_SERVICE_ACCOUNT_ID": "svac_test",
+}
+FAKE_JWT = "eyJhbGciOiJSUzI1NiJ9.payload.signature"
+
+
+@pytest.fixture
+def jwt_in_env(monkeypatch):
+    """What the Console's "Authenticate from your workload" snippet expects:
+    the identity token in a plain variable, read by a callable."""
+    for name, value in FED_IDS.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("JWT", FAKE_JWT)
+
+
+def test_a_jwt_in_a_plain_variable_counts_as_federation(jwt_in_env):
+    assert AnthropicProvider.federation_configured() is True
+    assert AnthropicProvider.credential_source() == "workload identity federation"
+
+
+@pytest.fixture
+def credential_spy(monkeypatch):
+    """Record what we hand the SDK's WorkloadIdentityCredentials. Asserting
+    on the object's own attributes would be asserting on SDK internals —
+    they are private and free to change."""
+    import anthropic
+
+    recorded = {}
+
+    class Spy:
+        def __init__(self, **kwargs):
+            recorded.clear()
+            recorded.update(kwargs)
+
+    monkeypatch.setattr(anthropic, "WorkloadIdentityCredentials", Spy)
+    return recorded
+
+
+def test_explicit_credentials_carry_the_federation_ids(jwt_in_env, credential_spy):
+    AnthropicProvider.explicit_federation_credentials()
+
+    assert credential_spy["federation_rule_id"] == "fdrl_test"
+    assert credential_spy["organization_id"] == FED_IDS["ANTHROPIC_ORGANIZATION_ID"]
+    assert credential_spy["service_account_id"] == "svac_test"
+
+
+def test_the_token_provider_reads_the_variable_at_call_time(jwt_in_env, credential_spy,
+                                                            monkeypatch):
+    """The JWT is fetched when the exchange happens, not captured at
+    construction — a rotated token is picked up."""
+    AnthropicProvider.explicit_federation_credentials()
+    provider = credential_spy["identity_token_provider"]
+
+    assert provider() == FAKE_JWT
+    monkeypatch.setenv("JWT", "eyJhbGciOiJSUzI1NiJ9.rotated.signature")
+    assert provider().split(".")[1] == "rotated"
+
+
+def test_workspace_is_omitted_unless_set(jwt_in_env, credential_spy, monkeypatch):
+    """A rule bound to one workspace expects the field absent — the server
+    selects that workspace itself."""
+    AnthropicProvider.explicit_federation_credentials()
+    assert "workspace_id" not in credential_spy
+
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test")
+    AnthropicProvider.explicit_federation_credentials()
+    assert credential_spy["workspace_id"] == "wrkspc_test"
+
+
+def test_the_client_is_given_those_credentials(jwt_in_env, monkeypatch):
+    """The client is constructed with credentials= rather than zero-arg,
+    which is the whole point of this path."""
+    calls = _fake_sdk(monkeypatch)
+    sentinel = object()
+    monkeypatch.setattr(AnthropicProvider, "explicit_federation_credentials",
+                        classmethod(lambda cls: sentinel))
+
+    AnthropicProvider()._client()
+
+    assert calls == [{"credentials": sentinel}]
