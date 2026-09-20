@@ -9,7 +9,9 @@ name: triage stream
 #   ANTHROPIC_FEDERATION_RULE_ID    fdrl_...   from the Console's Connect workload wizard
 #   ANTHROPIC_ORGANIZATION_ID       the org UUID
 #   ANTHROPIC_SERVICE_ACCOUNT_ID    svac_...   the rule's target service account
-#   ANTHROPIC_WORKSPACE_ID          wrkspc_... only if the rule covers several workspaces
+#   ANTHROPIC_WORKSPACE_ID          wrkspc_... ONLY if the rule covers several
+#                                   workspaces. With a rule bound to one workspace,
+#                                   leave it unset — the server picks that one.
 #   ANTHROPIC_OIDC_AUDIENCE         defaults to https://api.anthropic.com, which is
 #                                   what the Console's GitHub Actions wizard puts in
 #                                   the rule's audience matcher — override only if
@@ -95,6 +97,15 @@ jobs:
           AGENT_MODEL: ${{ vars.AGENT_MODEL }}
         run: |
           set -euo pipefail
+          # An unset Actions variable arrives as an empty string, not as an
+          # absent variable. Drop the empties before calling Python: a blank
+          # ANTHROPIC_WORKSPACE_ID would otherwise be carried into the token
+          # exchange, where the server expects the field to be absent when the
+          # rule covers a single workspace.
+          for name in ANTHROPIC_WORKSPACE_ID AGENT_MODEL SLACK_CHANNEL_ALERTS \
+                      SLACK_CHANNEL_P1 SLACK_CHANNEL_CHANGES SLACK_BOT_TOKEN; do
+            if [ -z "${!name:-}" ]; then unset "${name}"; fi
+          done
           source=$(python -c "from agent.providers import AnthropicProvider as A; print(A.credential_source())")
           echo "credential source: ${source}"
           python -c "from agent import llm; print('model layer:', llm.describe())"
@@ -124,6 +135,15 @@ jobs:
           SLACK_CHANNEL_CHANGES: ${{ vars.SLACK_CHANNEL_CHANGES }}
         run: |
           set -euo pipefail
+          # An unset Actions variable arrives as an empty string, not as an
+          # absent variable. Drop the empties before calling Python: a blank
+          # ANTHROPIC_WORKSPACE_ID would otherwise be carried into the token
+          # exchange, where the server expects the field to be absent when the
+          # rule covers a single workspace.
+          for name in ANTHROPIC_WORKSPACE_ID AGENT_MODEL SLACK_CHANNEL_ALERTS \
+                      SLACK_CHANNEL_P1 SLACK_CHANNEL_CHANGES SLACK_BOT_TOKEN; do
+            if [ -z "${!name:-}" ]; then unset "${name}"; fi
+          done
           python scripts/stream.py \
             --duration "${{ inputs.duration || '120' }}" \
             --rate "${{ inputs.rate || '8' }}" \

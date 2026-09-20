@@ -381,7 +381,7 @@ Set these under **Settings → Secrets and variables → Actions → Variables**
 | `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_...` from the Console's **Connect workload** wizard |
 | `ANTHROPIC_ORGANIZATION_ID` | the organization UUID |
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_...`, the rule's target service account |
-| `ANTHROPIC_WORKSPACE_ID` | only when the rule covers more than one workspace |
+| `ANTHROPIC_WORKSPACE_ID` | only when the rule covers more than one workspace — with a single-workspace rule, leave it unset and the server picks that one |
 | `ANTHROPIC_OIDC_AUDIENCE` | optional — defaults to `https://api.anthropic.com`, which is what the Console's GitHub Actions wizard writes into the rule |
 | `AGENT_MODEL` | optional; defaults to `claude-haiku-4-5` |
 
