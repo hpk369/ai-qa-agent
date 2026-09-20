@@ -382,10 +382,10 @@ Set these under **Settings → Secrets and variables → Actions → Variables**
 | `ANTHROPIC_ORGANIZATION_ID` | the organization UUID |
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_...`, the rule's target service account |
 | `ANTHROPIC_WORKSPACE_ID` | only when the rule covers more than one workspace |
-| `ANTHROPIC_OIDC_AUDIENCE` | only when the rule matches an exact audience |
+| `ANTHROPIC_OIDC_AUDIENCE` | optional — defaults to `https://api.anthropic.com`, which is what the Console's GitHub Actions wizard writes into the rule |
 | `AGENT_MODEL` | optional; defaults to `claude-haiku-4-5` |
 
-The workflow declares `permissions: id-token: write`, writes the JWT to a `0600` file that is never echoed, and **fails if the resolved credential is anything other than federation** — otherwise a misconfigured run would quietly fall back to deterministic narration and look like a quiet model rather than a broken setup. Until `ANTHROPIC_FEDERATION_RULE_ID` is set the job is skipped rather than failed, so a fork does not go red.
+The workflow requests the token with audience `https://api.anthropic.com` (GitHub's own default is the repository owner URL, which would not match a rule built by the wizard), declares `permissions: id-token: write`, writes the JWT to a `0600` file that is never echoed, and **fails if the resolved credential is anything other than federation** — otherwise a misconfigured run would quietly fall back to deterministic narration and look like a quiet model rather than a broken setup. Until `ANTHROPIC_FEDERATION_RULE_ID` is set the job is skipped rather than failed, so a fork does not go red.
 
 A scheduled run passes `--auto-resolve 30`: nobody is watching Slack at 07:17 on a Monday, so a blocking incident releases itself instead of holding the runner. Drop that flag to watch the gate hold for real. At `--duration 120` the run costs about a cent on Haiku 4.5.
 
