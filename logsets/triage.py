@@ -206,9 +206,12 @@ def _root_cause(analysis: dict[str, Any], config: dict[str, Any]) -> str | None:
 
 
 def _recommended_action(runbook: str | None, download: str) -> str:
-    action = f"Work the runbook `{runbook}`." if runbook else \
+    # The runbook path is not repeated here — the Slack message renders it on
+    # its own line directly below, and the incident record carries it as a
+    # field. Saying it three times reads like a bug.
+    action = "Work the runbook linked below." if runbook else \
         "No runbook covers this signature set — triage from the logs."
-    return f"{action} The exact log set is attached for download: {download}"
+    return f"{action} The exact log set that produced this alert: {download}"
 
 
 def build_incident(logset: LogSet, analysis: dict[str, Any], archive: Path,
@@ -264,14 +267,15 @@ def narrate_incident(incident: Incident, analysis: dict[str, Any],
             finding["line_text"] for finding in analysis["findings"]
         ],
         default_summary=incident.impact_summary,
+        default_root_cause=incident.root_cause or "",
+        default_action=incident.recommended_action or "",
         source_label=source_label,
     )
     incident.impact_summary = narration.value.impact_summary
     incident.root_cause = narration.value.root_cause
-    incident.recommended_action = (
-        f"{narration.value.recommended_action} Runbook: `{incident.runbook}`."
-        if incident.runbook else narration.value.recommended_action
-    )
+    # The runbook is not appended here: agent/slack_blocks.py renders it on
+    # its own line, and saying it twice in one message reads like a bug.
+    incident.recommended_action = narration.value.recommended_action
     return narration.source
 
 
