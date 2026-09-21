@@ -30,6 +30,7 @@ def no_provider(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "auto")
     monkeypatch.setattr(llm.providers, "_ollama_running", lambda host=None: False)
+    llm.providers.reset_cache()
 
 
 @pytest.fixture

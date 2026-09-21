@@ -105,6 +105,12 @@ class AnthropicProvider:
         self.name = "anthropic"
         self.model = model or os.getenv("AGENT_MODEL", self.DEFAULT_MODEL)
         self._api_key = api_key
+        # One client per provider, reused. The SDK caches the access token
+        # it gets from a federated exchange and refreshes it before expiry —
+        # build a new client per call and every call performs a fresh
+        # exchange instead, which is both wasteful and, with an identity
+        # token an issuer only honours once, unreliable.
+        self._client_instance = None
 
     def supports_effort(self) -> bool:
         return not any(family in self.model for family in _NO_EFFORT_SUPPORT)
@@ -195,6 +201,12 @@ class AnthropicProvider:
         return WorkloadIdentityCredentials(**kwargs)
 
     def _client(self):
+        if self._client_instance is not None:
+            return self._client_instance
+        self._client_instance = self._build_client()
+        return self._client_instance
+
+    def _build_client(self):
         import anthropic
 
         if self._api_key:
@@ -356,8 +368,41 @@ def _ollama_running(host: str = OLLAMA_HOST) -> bool:
         return False
 
 
+# Providers are cached against the environment that produced them: the
+# point is to keep one client (and therefore one exchanged access token)
+# alive across calls, and a fresh provider each time would defeat that. A
+# change to any credential variable resolves again, so tests and runtime
+# reconfiguration both behave.
+_CACHE_KEYS = (
+    "LLM_PROVIDER", "LLM_MODE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY",
+    "AGENT_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
+    "ANTHROPIC_CONFIG_DIR", "ANTHROPIC_WORKSPACE_ID", _IDENTITY_TOKEN_ENV,
+    *_WIF_REQUIRED, *_WIF_TOKEN,
+)
+_resolved: dict[tuple, Provider | None] = {}
+
+
+def _cache_key(preference: str | None) -> tuple:
+    return (preference, *(os.getenv(name) for name in _CACHE_KEYS))
+
+
+def reset_cache() -> None:
+    """Forget the resolved provider — for tests, and for anything that
+    reconfigures credentials in-process."""
+    _resolved.clear()
+
+
 def resolve(preference: str | None = None) -> Provider | None:
     """Return the provider to use, or None for the deterministic path."""
+    key = _cache_key(preference)
+    if key in _resolved:
+        return _resolved[key]
+    provider = _resolve_uncached(preference)
+    _resolved[key] = provider
+    return provider
+
+
+def _resolve_uncached(preference: str | None = None) -> Provider | None:
     choice = (preference or os.getenv("LLM_PROVIDER", "auto")).lower()
 
     # LLM_MODE=off is the older switch for the same thing; still honoured.
