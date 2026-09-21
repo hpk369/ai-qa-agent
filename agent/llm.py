@@ -154,22 +154,25 @@ looks like and what would confirm it.
 evidence."""
 
 
-def _fallback_narration(signals: dict[str, Any], findings: list[dict[str, Any]],
-                        default_summary: str) -> Narration:
-    titles = []
-    for finding in findings:
-        if finding["title"] not in titles:
-            titles.append(finding["title"])
-    if findings:
-        worst = findings[0]
-        root_cause = (f"{worst['title']} ({worst['signature_id']}) — "
-                      f"`{worst['file']}` line {worst['line']}: {worst['line_text'][:200]}")
-    else:
-        root_cause = "No catalogued failure signature matched the errors in this log set."
+def _fallback_narration(findings: list[dict[str, Any]], default_summary: str,
+                        default_root_cause: str = "",
+                        default_action: str = "") -> Narration:
+    """The deterministic text, which must be a true no-op: whatever the
+    caller already computed is kept, so a failed call leaves the incident
+    exactly as it was rather than replacing good text with generic text."""
+    if not default_root_cause:
+        if findings:
+            worst = findings[0]
+            default_root_cause = (f"{worst['title']} ({worst['signature_id']}) — "
+                                  f"`{worst['file']}` line {worst['line']}: "
+                                  f"{worst['line_text'][:200]}")
+        else:
+            default_root_cause = ("No catalogued failure signature matched the errors "
+                                  "in this log set.")
     return Narration(
         impact_summary=default_summary,
-        root_cause=root_cause,
-        recommended_action="Work the linked runbook.",
+        root_cause=default_root_cause,
+        recommended_action=default_action or "Work the linked runbook.",
     )
 
 
@@ -179,11 +182,14 @@ def narrate(
     findings: list[dict[str, Any]],
     log_lines: list[str],
     default_summary: str,
+    default_root_cause: str = "",
+    default_action: str = "",
     source_label: str = "",
 ) -> LLMResult:
     """Write the human-facing part of an incident. Returns a Narration
-    either way — from Claude, or the deterministic text."""
-    fallback = _fallback_narration(signals, findings, default_summary)
+    either way — from the model, or the text the caller already had."""
+    fallback = _fallback_narration(findings, default_summary,
+                                   default_root_cause, default_action)
     if not available():
         return LLMResult(fallback, "fallback", "no model provider configured")
 
