@@ -1,0 +1,45 @@
+name: Mint an Anthropic identity token
+description: >
+  Request a GitHub OIDC token and expose its path as
+  ANTHROPIC_IDENTITY_TOKEN_FILE. The assertion is single-use: the issuer
+  accepts the first exchange and rejects every replay with a 401. Each
+  process that authenticates therefore needs its own token, so run this
+  immediately before every step that calls the API.
+
+inputs:
+  audience:
+    description: >
+      The aud claim the federation rule matches. The Console's GitHub Actions
+      wizard writes https://api.anthropic.com into the rule's audience matcher,
+      and GitHub's own default (the repository owner URL) would not match it.
+    required: false
+    default: https://api.anthropic.com
+  file-name:
+    description: >
+      Basename for the token file under RUNNER_TEMP. Give each consumer its own
+      name so a spent token can never be mistaken for a fresh one.
+    required: false
+    default: anthropic-oidc.jwt
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        AUDIENCE: ${{ inputs.audience }}
+        FILE_NAME: ${{ inputs.file-name }}
+      run: |
+        set -euo pipefail
+        url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(printf %s "${AUDIENCE}" | jq -sRr @uri)"
+        echo "requesting an OIDC token with audience ${AUDIENCE}"
+        token_file="${RUNNER_TEMP}/${FILE_NAME}"
+        umask 077
+        # The JWT goes straight to a file: never echoed, never in the log.
+        curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${url}" \
+          | jq -r '.value' > "${token_file}"
+        if [ ! -s "${token_file}" ] || [ "$(head -c 2 "${token_file}")" != "ey" ]; then
+          echo "::error::did not receive an OIDC token from GitHub"
+          exit 1
+        fi
+        echo "ANTHROPIC_IDENTITY_TOKEN_FILE=${token_file}" >> "${GITHUB_ENV}"
+        echo "minted an OIDC token ($(wc -c < "${token_file}") bytes)"
