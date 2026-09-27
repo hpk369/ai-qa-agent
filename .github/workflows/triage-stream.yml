@@ -1,9 +1,16 @@
 name: triage stream
 
 # Runs the live log stream against the real model, authenticating with
-# Workload Identity Federation — GitHub mints a short-lived OIDC token for
-# this job, Anthropic exchanges it for a token that expires in minutes, and
-# no static API key exists anywhere in the repository or its secrets.
+# Workload Identity Federation — GitHub mints a short-lived OIDC token,
+# Anthropic exchanges it for a token that expires in minutes, and no static
+# API key exists anywhere in the repository or its secrets.
+#
+# The OIDC assertion is single-use: the issuer accepts one exchange and 401s
+# every replay. Each step that authenticates is therefore preceded by its own
+# mint (./.github/actions/mint-anthropic-token) rather than sharing one token
+# across the job. Sharing one is not a loud failure — narration falls back to
+# deterministic text and the job still reports success — so the per-step mint
+# is what keeps a green run an honest one.
 #
 # Configure once (Settings > Secrets and variables > Actions > Variables):
 #   ANTHROPIC_FEDERATION_RULE_ID    fdrl_...   from the Console's Connect workload wizard
@@ -47,7 +54,15 @@ jobs:
   stream:
     name: stream and triage
     runs-on: ubuntu-latest
+    # The Slack credentials live in a GitHub Environment, and an environment's
+    # secrets and variables reach only a job that names it. Without this line
+    # `secrets.SLACK_BOT_TOKEN` below resolves to the empty string, SLACK_MODE
+    # computes to "stub", and the run posts nothing while still going green.
+    environment: SLACK_BOT_TOKEN
     timeout-minutes: 15
+    # Evaluated before the environment is resolved, so this must stay a
+    # repository-level variable: an environment-scoped one reads as empty here
+    # and would skip the job outright.
     if: vars.ANTHROPIC_FEDERATION_RULE_ID != ''
     steps:
       - uses: actions/checkout@v4
@@ -62,28 +77,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Mint a GitHub OIDC token for Anthropic
-        env:
-          # The federation rule matches the token's `aud` claim exactly. GitHub's
-          # own default audience is the repository owner URL, which would not
-          # match a rule built by the Console wizard, so ask for the documented
-          # one unless a variable says otherwise.
-          AUDIENCE: ${{ vars.ANTHROPIC_OIDC_AUDIENCE || 'https://api.anthropic.com' }}
-        run: |
-          set -euo pipefail
-          url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(printf %s "${AUDIENCE}" | jq -sRr @uri)"
-          echo "requesting an OIDC token with audience ${AUDIENCE}"
-          token_file="${RUNNER_TEMP}/anthropic-oidc.jwt"
-          umask 077
-          # The JWT goes straight to a file: never echoed, never in the log.
-          curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${url}" \
-            | jq -r '.value' > "${token_file}"
-          if [ ! -s "${token_file}" ] || [ "$(head -c 2 "${token_file}")" != "ey" ]; then
-            echo "::error::did not receive an OIDC token from GitHub"
-            exit 1
-          fi
-          echo "ANTHROPIC_IDENTITY_TOKEN_FILE=${token_file}" >> "${GITHUB_ENV}"
-          echo "minted an OIDC token ($(wc -c < "${token_file}") bytes)"
+      - name: Mint an OIDC token for the credential check
+        uses: ./.github/actions/mint-anthropic-token
+        with:
+          audience: ${{ vars.ANTHROPIC_OIDC_AUDIENCE || 'https://api.anthropic.com' }}
+          file-name: anthropic-oidc-verify.jwt
 
       - name: Verify the credential end to end
         # Resolves the credential, then makes one small real call — a few
@@ -110,6 +108,16 @@ jobs:
         # Optional: without it the stream generates its background instead.
         continue-on-error: true
         run: python scripts/fetch_logs.py
+
+      - name: Mint a fresh OIDC token for the stream
+        # The check above spent the previous assertion, and the issuer rejects a
+        # replay with a 401. Without a second token this step authenticated with
+        # a spent one: every narration fell back to deterministic text while the
+        # job still reported success, because a failed narration is non-fatal.
+        uses: ./.github/actions/mint-anthropic-token
+        with:
+          audience: ${{ vars.ANTHROPIC_OIDC_AUDIENCE || 'https://api.anthropic.com' }}
+          file-name: anthropic-oidc-stream.jwt
 
       - name: Stream and triage
         env:
