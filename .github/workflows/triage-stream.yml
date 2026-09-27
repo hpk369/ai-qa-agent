@@ -54,7 +54,15 @@ jobs:
   stream:
     name: stream and triage
     runs-on: ubuntu-latest
+    # The Slack credentials live in a GitHub Environment, and an environment's
+    # secrets and variables reach only a job that names it. Without this line
+    # `secrets.SLACK_BOT_TOKEN` below resolves to the empty string, SLACK_MODE
+    # computes to "stub", and the run posts nothing while still going green.
+    environment: SLACK_BOT_TOKEN
     timeout-minutes: 15
+    # Evaluated before the environment is resolved, so this must stay a
+    # repository-level variable: an environment-scoped one reads as empty here
+    # and would skip the job outright.
     if: vars.ANTHROPIC_FEDERATION_RULE_ID != ''
     steps:
       - uses: actions/checkout@v4
