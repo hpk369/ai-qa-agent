@@ -10,6 +10,11 @@ surfaces:
 * ``/slack/action`` — Slack's interactivity Request URL. Approve / Reject
   / Escalate buttons post here, not to any orchestrator; the decision is
   recorded on the incident record by agent.incident.
+* ``/incidents`` and ``/incident/*`` — the approval console: a triage run
+  pushes its incident here, and the Slack alert links to a page that
+  records the decision. This is the path that works when the alert was
+  posted by CI, where the runner holding the incident is long gone by the
+  time anyone clicks. See agent/console.py.
 
 Slack ownership sits here rather than in an external workflow tool
 because agent/slack_client.py's post_incident() mutates and re-persists
@@ -19,6 +24,7 @@ that owns persist().
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -27,11 +33,20 @@ import urllib.parse
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from agent.console import (
+    DECISIONS,
+    _DECISION_LABELS,
+    already_decided,
+    approver_from_request,
+    load_for_console,
+    store_pushed_incident,
+    token_accepted,
+)
 from agent.incident import load
 from agent.slack_verify import verify_slack_request
 from logsets.session import DEFAULT_ROOT, bundle, list_sessions, load_session
@@ -196,6 +211,152 @@ async def slack_action(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(process_slack_action, action_payload)
     return {"ok": True}
+
+
+# ---------- the approval console ----------
+
+def _console_page(title: str, body: str, status_line: str = "") -> HTMLResponse:
+    """One self-contained page. No CDN, no build step — this is served from
+    the same process that triages, and an approval screen that cannot render
+    because a stylesheet host is unreachable is worse than a plain one."""
+    return HTMLResponse(f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+  :root {{ color-scheme: light dark; --fg:#1a1a1a; --bg:#fbfbfa; --muted:#666;
+           --line:#e3e3e0; --card:#fff; }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{ --fg:#e8e8e6; --bg:#191918; --muted:#a0a09a; --line:#33332f; --card:#222221; }}
+  }}
+  body {{ margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
+          font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }}
+  main {{ max-width:680px; margin:0 auto; }}
+  .card {{ background:var(--card); border:1px solid var(--line); border-radius:10px;
+           padding:20px; margin-bottom:16px; }}
+  h1 {{ font-size:20px; margin:0 0 4px; }}
+  .muted {{ color:var(--muted); font-size:14px; }}
+  dl {{ display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:16px 0 0; font-size:14px; }}
+  dt {{ color:var(--muted); }} dd {{ margin:0; }}
+  pre {{ white-space:pre-wrap; word-break:break-word; font-size:13px; margin:8px 0 0; }}
+  form {{ display:flex; gap:10px; flex-wrap:wrap; margin:0; }}
+  button {{ font:inherit; font-weight:600; padding:10px 18px; border-radius:8px;
+            border:1px solid var(--line); cursor:pointer; background:var(--card); color:var(--fg); }}
+  button.approve {{ background:#1f7a43; border-color:#1f7a43; color:#fff; }}
+  button.reject  {{ background:#a02b2b; border-color:#a02b2b; color:#fff; }}
+  .banner {{ padding:12px 16px; border:1px solid var(--line); border-radius:8px;
+             margin-bottom:16px; font-size:14px; }}
+</style></head><body><main>
+{status_line}
+{body}
+</main></body></html>""")
+
+
+@app.post("/incidents")
+async def ingest_incident(request: Request):
+    """Accept an incident pushed by a triage run.
+
+    This is what makes the console usable at all from CI. The runner that
+    opens an incident writes it to its own ephemeral disk and is destroyed;
+    pushing the record here gives the console something to act on.
+    """
+    if not token_accepted(request.headers.get("Authorization", "").removeprefix("Bearer ").strip()):
+        raise HTTPException(status_code=401, detail="invalid or missing ingest token")
+    try:
+        incident = store_pushed_incident(await request.json())
+    except Exception as exc:  # noqa: BLE001 - a malformed push is the caller's bug to see
+        raise HTTPException(status_code=400, detail=f"could not store incident: {exc}") from exc
+    return {"ok": True, "incident_id": incident.incident_id}
+
+
+@app.get("/incident/{incident_id}", response_class=HTMLResponse)
+def console_incident(incident_id: str, request: Request, intent: str | None = None):
+    """The page a Slack button opens.
+
+    `intent` only preselects which action the reader arrived for; it never
+    decides anything. Opening a link must stay safe — Slack unfurls URLs,
+    and chat clients prefetch them.
+    """
+    approver = approver_from_request(request.headers)
+    if approver is None:
+        return _console_page(
+            "Not authenticated",
+            '<div class="card"><h1>Not authenticated</h1>'
+            '<p class="muted">This request did not arrive through Cloudflare Access, so there is '
+            'no verified identity to record against a decision. Reach this console through its '
+            'public hostname rather than the origin directly.</p></div>')
+
+    incident = load_for_console(incident_id)
+    if incident is None:
+        return _console_page(
+            "Unknown incident",
+            f'<div class="card"><h1>Unknown incident</h1><p class="muted">'
+            f'<code>{html.escape(incident_id)}</code> was never pushed to this console. '
+            f'The triage run that opened it may have had no <code>AGENT_INGEST_URL</code> '
+            f'configured.</p></div>')
+
+    decided = already_decided(incident)
+    banner = (f'<div class="banner">Signed in as <strong>{html.escape(approver)}</strong></div>')
+
+    details = f"""<div class="card">
+  <h1>{html.escape(incident.incident_id)} &middot; {html.escape(incident.severity)}</h1>
+  <div class="muted">{html.escape(incident.status)}</div>
+  <pre>{html.escape(incident.impact_summary or '')}</pre>
+  <dl>
+    <dt>Job</dt><dd>{html.escape(incident.affected_job or '—')}</dd>
+    <dt>Root cause</dt><dd>{html.escape(incident.root_cause or '—')}</dd>
+    <dt>Runbook</dt><dd>{html.escape(incident.runbook or '—')}</dd>
+    <dt>Opened</dt><dd>{html.escape(incident.opened_at or '—')}</dd>
+  </dl>
+</div>"""
+
+    if decided:
+        actions = (f'<div class="card"><h1>Already decided</h1>'
+                   f'<p class="muted">{html.escape(decided)}. A second decision is refused, so '
+                   f'there is nothing to act on here.</p></div>')
+    else:
+        preselect = intent if intent in DECISIONS else ""
+        actions = f"""<div class="card">
+  <p class="muted">Recording a decision updates the incident, replies in its Slack thread and
+  posts to the change log.{' You arrived via <strong>' + html.escape(_DECISION_LABELS[preselect]) + '</strong>.' if preselect else ''}</p>
+  <form method="post" action="/incident/{html.escape(incident_id)}/decision">
+    <button class="approve" name="decision" value="approved">Approve</button>
+    <button class="reject" name="decision" value="rejected">Reject</button>
+    <button name="decision" value="escalated">Escalate</button>
+  </form>
+</div>"""
+
+    return _console_page(f"{incident.incident_id} — approval", details + actions, banner)
+
+
+@app.post("/incident/{incident_id}/decision", response_class=HTMLResponse)
+async def console_decision(incident_id: str, request: Request):
+    """Record the decision. The work itself is agent.incident's, unchanged
+    from the Slack-button path — this only supplies a verified approver."""
+    approver = approver_from_request(request.headers)
+    if approver is None:
+        raise HTTPException(status_code=401, detail="no Cloudflare Access identity on this request")
+
+    # Parsed by hand rather than via request.form(), which would pull in
+    # python-multipart for one urlencoded field. /slack/action already reads
+    # its body the same way.
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8"))
+    decision = (body.get("decision") or [""])[0]
+    if decision not in DECISIONS:
+        raise HTTPException(status_code=400, detail=f"unknown decision: {decision!r}")
+
+    incident = load_for_console(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"unknown incident: {incident_id}")
+
+    from agent.incident import record_approval_decision
+
+    record_approval_decision(incident, decision, approver)
+    return _console_page(
+        f"{incident_id} — {decision}",
+        f'<div class="card"><h1>Recorded</h1><p class="muted">'
+        f'<strong>{html.escape(decision)}</strong> by {html.escape(approver)}. '
+        f'The Slack thread and the change log have been updated. You can close this tab.</p></div>')
 
 
 @app.get("/health")

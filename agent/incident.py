@@ -209,7 +209,7 @@ def record_approval_decision(incident: Incident, decision: str, approver: str, s
     if decision not in VALID_DECISIONS:
         raise ValueError(f"unknown decision: {decision!r} (must be one of {sorted(VALID_DECISIONS)})")
 
-    from agent.slack_blocks import build_parent_message, build_thread_reply
+    from agent.slack_blocks import build_parent_message, build_thread_reply, format_actor
     from agent.slack_client import SlackClient
 
     slack = slack_client or SlackClient()
@@ -224,7 +224,7 @@ def record_approval_decision(incident: Incident, decision: str, approver: str, s
         persist(incident)
         try:
             blocks, text = build_thread_reply(
-                f"⚠️ Duplicate decision ignored: <@{approver}> attempted *{decision}*, "
+                f"⚠️ Duplicate decision ignored: {format_actor(approver)} attempted *{decision}*, "
                 f"but this incident was already decided."
             )
             slack.reply_thread(incident, blocks, text)
@@ -237,7 +237,7 @@ def record_approval_decision(incident: Incident, decision: str, approver: str, s
     persist(incident)
 
     try:
-        blocks, text = build_thread_reply(f"*{decision.capitalize()}* by <@{approver}>")
+        blocks, text = build_thread_reply(f"*{decision.capitalize()}* by {format_actor(approver)}")
         slack.reply_thread(incident, blocks, text)
         slack.post_change_log(incident, decision, approver)
         if decision == "escalated":

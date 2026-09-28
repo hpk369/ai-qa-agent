@@ -170,6 +170,13 @@ class SlackClient:
                 f"[slack_client] CRITICAL: posted {incident.incident_id} to Slack "
                 f"(ts={incident.slack_ts}) but failed to persist the incident record: {exc}"
             )
+
+        # Hand the record to the approval console, now that it carries the ts
+        # the console needs to answer in this thread. No-ops when no console is
+        # configured, which is every local run and the whole test suite.
+        from agent.console import push_incident
+
+        push_incident(incident)
         return incident.slack_ts
 
     def reply_thread(self, incident: Incident, blocks: list[dict], text: str) -> str:
@@ -275,8 +282,14 @@ class SlackClient:
     def post_change_log(self, incident: Incident, action: str, approver: str) -> str:
         """Post a decision (approved/rejected/escalated/executed/...) to
         #etl-changes — the audit trail for every remediation action."""
+        # The one content import in this transport module. post_change_log
+        # already builds its own line (see the module docstring); this keeps
+        # an approver that is not a Slack ID — a console identity, say — from
+        # rendering as the literal characters "<@someone@example.com>".
+        from agent.slack_blocks import format_actor
+
         text = (
-            f"*{incident.incident_id}* ({incident.severity}) — *{action}* by <@{approver}>"
+            f"*{incident.incident_id}* ({incident.severity}) — *{action}* by {format_actor(approver)}"
         )
         payload = {
             "channel": self.channel_changes,

@@ -1,0 +1,9 @@
+.git
+.github
+.env
+reports/
+logsets/corpus/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
