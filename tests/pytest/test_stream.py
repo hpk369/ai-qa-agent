@@ -22,6 +22,7 @@ from agent import llm
 from agent import slack_client as slack_client_module
 from agent.incident import load
 from agent.llm import LLMResult, ResolutionJudgement
+from agent.slack_client import SlackAPIError
 from logsets.session import load_session
 from logsets.stream import Clock, StreamConfig, StreamRunner
 
@@ -402,3 +403,69 @@ def test_slack_gets_the_alert_and_the_resume_note(root, stub_dir):
     assert posted, "nothing was posted to Slack"
     texts = " ".join(str(p["payload"].get("text", "")) for p in posted)
     assert "resumed" in texts
+
+
+# ---------- A Slack reader that fails ----------
+
+class _BrokenReader:
+    """A Slack client whose reads fail the way a live misconfiguration does.
+    Writes still succeed: the alert path and the read-back path fail
+    independently, which is exactly what the first live run showed.
+    """
+
+    def __init__(self):
+        self.read_attempts = 0
+
+    def post_incident(self, incident, blocks, text):
+        incident.slack_channel, incident.slack_ts = "C_ALERTS", "1.1"
+        return "1.1"
+
+    def reply_thread(self, incident, blocks, text):
+        return "1.2"
+
+    def update_parent(self, incident, blocks, text):
+        return None
+
+    def mirror_p1(self, incident, blocks, text):
+        return None
+
+    def get_reactions(self, incident):
+        self.read_attempts += 1
+        raise SlackAPIError("Slack API reactions.get failed: no_item_specified")
+
+    def get_thread_replies(self, incident):
+        self.read_attempts += 1
+        raise SlackAPIError("Slack API conversations.replies failed: no_item_specified")
+
+
+def test_an_unreadable_thread_holds_the_gate_shut_instead_of_ending_the_run(root):
+    """The live regression: SlackAPIError escaping the gate ended a 120s run at
+    48s and discarded the incidents already triaged. The run must now complete,
+    and the gate must not release on a read it never managed to perform."""
+    broken = _BrokenReader()
+
+    runner, result, events = run_stream(
+        root, seed=5, slack_client=broken,
+        blocking_severities=frozenset({"P1", "P2", "P3", "P4"}),
+        auto_resolve_after=5.0)
+
+    assert result["lines_emitted"] > 0, "the run completed rather than raising"
+    assert broken.read_attempts > 0, "the gate really did try to read Slack"
+    released = [e for e in events if e.kind == "released"]
+    for event in released:
+        assert "reaction" not in event.detail, \
+            "a read that failed must never be reported as a confirmation"
+
+
+def test_a_failing_read_is_reported_every_poll_not_silently_swallowed(root, capsys):
+    """A broken reader and a quiet thread both release nothing. What separates
+    them is that the broken one says so, so it cannot be mistaken for silence."""
+    broken = _BrokenReader()
+
+    run_stream(root, seed=5, slack_client=broken,
+               blocking_severities=frozenset({"P1", "P2", "P3", "P4"}),
+               auto_resolve_after=5.0)
+
+    warnings = [line for line in capsys.readouterr().out.splitlines()
+                if "could not read" in line and "gate stays shut" in line]
+    assert warnings, "a failing Slack read must be reported, not swallowed"

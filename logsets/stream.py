@@ -42,7 +42,7 @@ from agent import llm
 from agent.incident import Incident, load, resolve_incident
 from agent.severity import load_config
 from agent.slack_blocks import build_thread_reply
-from agent.slack_client import SlackClient
+from agent.slack_client import SlackAPIError, SlackClient
 from logsets.catalog import (
     INJECTABLE_SOURCES,
     Signature,
@@ -371,14 +371,33 @@ class StreamRunner:
 
     def _seen_replies(self, incident: Incident) -> list[dict[str, str]]:
         client = self.slack_client or SlackClient()
-        return [message for message in client.get_thread_replies(incident)
+        try:
+            messages = client.get_thread_replies(incident)
+        except SlackAPIError as exc:
+            # Unreadable is not the same as empty, but it releases nothing
+            # either way — see _reaction_confirms on why this is not fatal.
+            print(f"[stream] WARNING: could not read {incident.incident_id}'s thread, "
+                  f"the gate stays shut — {exc}")
+            return []
+        return [message for message in messages
                 if message.get("text") and not message.get("bot_id")]
 
     def _reaction_confirms(self, incident: Incident) -> bool:
         client = self.slack_client or SlackClient()
         confirming = {"white_check_mark", "heavy_check_mark", "ballot_box_with_check"}
-        return any(reaction.get("name") in confirming
-                   for reaction in client.get_reactions(incident))
+        try:
+            reactions = client.get_reactions(incident)
+        except SlackAPIError as exc:
+            # A gate that cannot read Slack holds shut and says so. Letting this
+            # propagate ended a 120s run at 48s, discarding the incidents already
+            # triaged — a worse outcome than never releasing, and a far worse one
+            # than the alert path, which has always caught and warned. Both
+            # polls raise loudly here on every attempt rather than once, which
+            # is what distinguishes a broken reader from a quiet thread.
+            print(f"[stream] WARNING: could not read reactions on "
+                  f"{incident.incident_id}, the gate stays shut — {exc}")
+            return False
+        return any(reaction.get("name") in confirming for reaction in reactions)
 
     def _check_release(self, incident: Incident, already_judged: set[str]) -> tuple[bool, str]:
         """Has a human confirmed this is fixed? Three ways in, and the

@@ -293,8 +293,10 @@ class TestGetThreadRepliesAndReactions:
     def test_get_thread_replies_returns_messages(self, monkeypatch):
         captured = {}
 
-        def fake_post(url, json, headers, timeout):
-            captured["payload"] = json
+        def fake_post(url, headers, timeout, **body):
+            # conversations.replies is form-encoded, so the arguments arrive as
+            # `data`, not `json` — see TestLiveEncoding.
+            captured["payload"] = body["data"]
             return FakeResponse(200, {"ok": True, "messages": [{"ts": "1", "user": "U1"}]})
 
         monkeypatch.setattr(slack_client_module.httpx, "post", fake_post)
@@ -311,7 +313,7 @@ class TestGetThreadRepliesAndReactions:
         assert captured["payload"]["ts"] == "1690000000.000100"
 
     def test_get_reactions_returns_reaction_list(self, monkeypatch):
-        def fake_post(url, json, headers, timeout):
+        def fake_post(url, headers, timeout, **body):
             return FakeResponse(
                 200, {"ok": True, "message": {"reactions": [{"name": "eyes", "users": ["U1"]}]}}
             )
@@ -326,3 +328,75 @@ class TestGetThreadRepliesAndReactions:
         reactions = client.get_reactions(incident)
 
         assert reactions == [{"name": "eyes", "users": ["U1"]}]
+
+
+class TestLiveEncoding:
+    """Slack accepts a JSON body only for the methods documented to take one.
+    The read methods need form-encoded arguments; sent as JSON their arguments
+    are silently ignored and Slack answers as if none were passed. That is a
+    content-type question, so it is the one thing a mock that only inspects the
+    payload cannot catch — these tests assert the encoding itself.
+    """
+
+    def _capture(self, monkeypatch, response):
+        seen = {}
+
+        def fake_post(url, **kwargs):
+            seen["url"] = url
+            seen["headers"] = kwargs.get("headers", {})
+            seen["json"] = kwargs.get("json")
+            seen["data"] = kwargs.get("data")
+            return response
+
+        monkeypatch.setattr(slack_client_module.httpx, "post", fake_post)
+        return seen
+
+    def test_reactions_get_is_form_encoded(self, monkeypatch):
+        seen = self._capture(monkeypatch, FakeResponse(
+            200, {"ok": True, "message": {"reactions": [{"name": "white_check_mark"}]}}))
+        client = SlackClient(bot_token="xoxb-test", mode="live")
+        incident = _incident()
+        incident.slack_channel, incident.slack_ts = "C123", "111.222"
+
+        reactions = client.get_reactions(incident)
+
+        assert seen["json"] is None, "reactions.get must not be sent as a JSON body"
+        assert seen["data"] == {"channel": "C123", "timestamp": "111.222"}
+        assert "json" not in seen["headers"].get("Content-Type", "")
+        assert reactions == [{"name": "white_check_mark"}]
+
+    def test_conversations_replies_is_form_encoded(self, monkeypatch):
+        seen = self._capture(monkeypatch, FakeResponse(
+            200, {"ok": True, "messages": [{"text": "parent"}, {"text": "on it"}]}))
+        client = SlackClient(bot_token="xoxb-test", mode="live")
+        incident = _incident()
+        incident.slack_channel, incident.slack_ts = "C123", "111.222"
+
+        messages = client.get_thread_replies(incident)
+
+        assert seen["json"] is None
+        assert seen["data"] == {"channel": "C123", "ts": "111.222"}
+        assert len(messages) == 2
+
+    def test_post_message_stays_json(self, monkeypatch):
+        """blocks are nested structures — the write path must keep its JSON body."""
+        seen = self._capture(monkeypatch, FakeResponse(
+            200, {"ok": True, "ts": "999.000", "channel": "C123"}))
+        client = SlackClient(bot_token="xoxb-test", mode="live", channel_alerts="C123")
+
+        client.post_incident(_incident(), _blocks(), "hello")
+
+        assert seen["data"] is None, "chat.postMessage must keep its JSON body"
+        assert seen["json"]["blocks"] == _blocks()
+        assert "application/json" in seen["headers"]["Content-Type"]
+
+    def test_a_read_method_rejected_by_slack_still_raises(self, monkeypatch):
+        """Form-encoding fixes the cause of no_item_specified; it does not make
+        the client swallow a genuine Slack rejection."""
+        self._capture(monkeypatch, FakeResponse(200, {"ok": False, "error": "channel_not_found"}))
+        client = SlackClient(bot_token="xoxb-test", mode="live")
+        incident = _incident()
+        incident.slack_channel, incident.slack_ts = "C123", "111.222"
+
+        with pytest.raises(SlackAPIError, match="channel_not_found"):
+            client.get_reactions(incident)
