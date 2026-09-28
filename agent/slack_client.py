@@ -43,6 +43,15 @@ INBOX_DIRNAME = "inbox"
 MAX_ATTEMPTS = 3
 DEFAULT_RETRY_AFTER_SECONDS = 1
 
+# Slack reads a JSON body only for the methods documented to accept one —
+# broadly the write methods, whose `blocks` are nested structures. The read
+# methods below take plain arguments and must be form-encoded: posted as JSON
+# their arguments are not rejected, they are *ignored*, and Slack answers as
+# though none were sent at all ("no_item_specified" from reactions.get, for
+# instance). The first live run of this client failed exactly that way, having
+# passed every mocked test, because a mock never negotiates a content type.
+FORM_ENCODED_METHODS = frozenset({"reactions.get", "conversations.replies"})
+
 
 class SlackAPIError(RuntimeError):
     """Raised when a Slack API call fails after retrying, or Slack itself
@@ -94,16 +103,19 @@ class SlackClient:
         return {"ok": True, "ts": synthetic_ts, "channel": payload.get("channel", "")}
 
     def _live_call(self, method: str, payload: dict) -> dict:
-        headers = {
-            "Authorization": f"Bearer {self.bot_token}",
-            "Content-Type": "application/json; charset=utf-8",
-        }
+        headers = {"Authorization": f"Bearer {self.bot_token}"}
+        as_json = method not in FORM_ENCODED_METHODS
+        if as_json:
+            headers["Content-Type"] = "application/json; charset=utf-8"
         last_error: str | None = None
 
         for attempt in range(MAX_ATTEMPTS):
             try:
                 resp = httpx.post(
-                    f"{SLACK_API_BASE}/{method}", json=payload, headers=headers, timeout=10.0
+                    f"{SLACK_API_BASE}/{method}",
+                    headers=headers,
+                    timeout=10.0,
+                    **({"json": payload} if as_json else {"data": payload}),
                 )
             except httpx.RequestError as exc:
                 last_error = _redact(str(exc), self.bot_token)
