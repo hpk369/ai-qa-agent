@@ -342,7 +342,6 @@
       font-size: 0.72rem; padding: 3px 10px; border-radius: 4px; font-weight: 700;
       letter-spacing: 0.5px;
     }
-    .test-framework-badge.robot { background: rgba(61,179,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
     .test-framework-badge.pytest { background: rgba(255,166,87,0.15); color: var(--orange); border: 1px solid rgba(255,166,87,0.3); }
     .test-case {
       display: flex; align-items: center; gap: 10px;
@@ -521,8 +520,8 @@
             <div class="step" id="step-tests">
               <div class="step-dot">4</div>
               <div class="step-content">
-                <div class="step-title">Validation Framework Invoked</div>
-                <div class="step-sub" id="step-tests-sub">Clean → Robot Framework · Incident → pytest</div>
+                <div class="step-title">Diagnostics</div>
+                <div class="step-sub" id="step-tests-sub">Incident → pytest diagnostics · a clean run skips it</div>
               </div>
             </div>
             <div class="step" id="step-notify">
@@ -726,7 +725,7 @@
       'step-trigger': 'Waiting for trigger…',
       'step-tools': 'sql_validator · log_analyser · schema_comparator',
       'step-synth': 'Deterministic — same signals, same call, every time',
-      'step-tests': 'Clean → Robot Framework · Incident → pytest',
+      'step-tests': 'Incident → pytest diagnostics · a clean run skips it',
       'step-notify': 'Incident record opened, threaded, awaiting response',
     };
     ['step-trigger','step-tools','step-synth','step-tests','step-notify'].forEach((id, i) => {
@@ -882,7 +881,7 @@
 
   window.verifyAndResolve = function() {
     if (!currentIncident) return;
-    appendLog('→ Re-running Robot Framework validation suite to confirm restoration…', 'log-info');
+    appendLog('→ Re-reading the log set to confirm the signature is gone…', 'log-info');
     addThreadReply('Validation suite re-run — restoration confirmed ✅');
     currentIncident.status = 'resolved';
     currentIncident.mtta_seconds = currentIncident.mtta_seconds ?? Math.max(1, Math.round((Date.now() - currentIncident._openedAtMs) / 1000));
@@ -894,32 +893,21 @@
   };
 
   function showTestResults(data) {
-    const isRobot = data.framework === 'Robot Framework';
     document.getElementById('testResults').style.display = 'block';
-    document.getElementById('testPanelHeader').textContent =
-      (isRobot ? '🤖' : '🧪') + ' Test Results — ' + data.framework;
+    document.getElementById('testPanelHeader').textContent = '🧪 Test Results — ' + data.framework;
     const badge = document.getElementById('fwBadge');
     badge.textContent = data.framework;
-    badge.className = 'test-framework-badge ' + (isRobot ? 'robot' : 'pytest');
+    badge.className = 'test-framework-badge pytest';
     document.getElementById('statPass').textContent = `✓ ${data.passed} passed`;
     document.getElementById('statFail').textContent = `✗ ${data.failed} failed`;
     const list = document.getElementById('testCaseList');
     list.innerHTML = '';
-    if (isRobot) {
-      data.cases.forEach(name => {
-        const div = document.createElement('div');
-        div.className = 'test-case';
-        div.innerHTML = `<span class="tc-icon">✅</span><span>${name}</span>`;
-        list.appendChild(div);
-      });
-    } else {
-      data.cases.forEach(c => {
-        const div = document.createElement('div');
-        div.className = 'test-case';
-        div.innerHTML = `<span class="tc-icon">${c.passed ? '✅' : '❌'}</span><span style="color:${c.passed ? 'var(--text)' : 'var(--red)'}">${c.name}</span>`;
-        list.appendChild(div);
-      });
-    }
+    data.cases.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'test-case';
+      div.innerHTML = `<span class="tc-icon">${c.passed ? '✅' : '❌'}</span><span style="color:${c.passed ? 'var(--text)' : 'var(--red)'}">${c.name}</span>`;
+      list.appendChild(div);
+    });
   }
 
   function toolLabel(t) { return t; }
@@ -1063,10 +1051,6 @@
     ]},
   };
 
-  const ROBOT_CASES = ['Tool Server Is Healthy', 'Pipeline Run Completes Successfully',
-    'Schema Should Match Source', 'Logs Should Contain No Errors',
-    'Row Count Within Tolerance', 'Null Rate Within Tolerance For Amount'];
-
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   function makeIncidentId() {
@@ -1136,12 +1120,8 @@
           requires_approval: false, recommended_action: null, runbook: null, confidence: 0.98 });
         document.getElementById('incidentLabel').textContent = 'CLEAN';
         document.getElementById('incidentEmoji').textContent = '✅';
-        setStep('step-tests', 'active', 'Launching Robot Framework…');
-        appendLog('→ Invoking Robot Framework (SLA / data-contract verification)…', 'log-info');
-        await sleep(1200);
-        setStep('step-tests', 'done', 'Robot Framework: 6 passed, 0 failed');
-        appendLog('← Robot Framework complete: 6 passed / 0 failed', 'log-result-pass');
-        showTestResults({ framework: 'Robot Framework', passed: 6, failed: 0, cases: ROBOT_CASES });
+        setStep('step-tests', 'done', 'No incident — nothing to diagnose');
+        appendLog('→ clean log set: no signature matched, so no incident is opened', 'log-dim');
         setStep('step-notify', 'done', 'No incident to post');
         appendLog('→ notify_slack: clean run, nothing posted', 'log-dim');
       } else {
