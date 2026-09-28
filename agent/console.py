@@ -35,7 +35,7 @@ ACCESS_EMAIL_HEADER = "Cf-Access-Authenticated-User-Email"
 INGEST_TOKEN_ENV = "AGENT_INGEST_TOKEN"
 
 DECISIONS = ("approved", "rejected", "escalated")
-_DECISION_LABELS = {"approved": "Approve", "rejected": "Reject", "escalated": "Escalate"}
+DECISION_LABELS = {"approved": "Approve", "rejected": "Reject", "escalated": "Escalate"}
 
 
 def console_base_url() -> str:

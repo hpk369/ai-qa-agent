@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.console import (
     DECISIONS,
-    _DECISION_LABELS,
+    DECISION_LABELS,
     already_decided,
     approver_from_request,
     load_for_console,
@@ -318,7 +318,7 @@ def console_incident(incident_id: str, request: Request, intent: str | None = No
         preselect = intent if intent in DECISIONS else ""
         actions = f"""<div class="card">
   <p class="muted">Recording a decision updates the incident, replies in its Slack thread and
-  posts to the change log.{' You arrived via <strong>' + html.escape(_DECISION_LABELS[preselect]) + '</strong>.' if preselect else ''}</p>
+  posts to the change log.{' You arrived via <strong>' + html.escape(DECISION_LABELS[preselect]) + '</strong>.' if preselect else ''}</p>
   <form method="post" action="/incident/{html.escape(incident_id)}/decision">
     <button class="approve" name="decision" value="approved">Approve</button>
     <button class="reject" name="decision" value="rejected">Reject</button>
