@@ -336,26 +336,6 @@
     .slack-note { font-size: 0.7rem; color: var(--muted); margin-top: 10px; }
 
     /* ─── Test results ─── */
-    .test-results { margin-top: 20px; display: none; animation: fadeIn 0.4s ease; }
-    .test-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .test-framework-badge {
-      font-size: 0.72rem; padding: 3px 10px; border-radius: 4px; font-weight: 700;
-      letter-spacing: 0.5px;
-    }
-    .test-framework-badge.pytest { background: rgba(255,166,87,0.15); color: var(--orange); border: 1px solid rgba(255,166,87,0.3); }
-    .test-case {
-      display: flex; align-items: center; gap: 10px;
-      padding: 7px 12px; border-radius: 6px; margin-bottom: 4px;
-      font-size: 0.78rem; font-family: var(--mono);
-      background: var(--surface2); border: 1px solid var(--border);
-    }
-    .test-case .tc-icon { font-size: 0.9rem; min-width: 18px; }
-    .test-stats {
-      display: flex; gap: 16px; margin-bottom: 10px;
-      font-size: 0.82rem; font-weight: 600;
-    }
-    .stat-pass { color: var(--green); }
-    .stat-fail { color: var(--red); }
 
     /* ─── Idle placeholder ─── */
     .idle-placeholder {
@@ -517,15 +497,8 @@
                 <div class="step-sub" id="step-synth-sub">Deterministic — same signals, same call, every time</div>
               </div>
             </div>
-            <div class="step" id="step-tests">
-              <div class="step-dot">4</div>
-              <div class="step-content">
-                <div class="step-title">Diagnostics</div>
-                <div class="step-sub" id="step-tests-sub">Incident → pytest diagnostics · a clean run skips it</div>
-              </div>
-            </div>
             <div class="step" id="step-notify">
-              <div class="step-dot">5</div>
+              <div class="step-dot">4</div>
               <div class="step-content">
                 <div class="step-title">Posted to Slack</div>
                 <div class="step-sub" id="step-notify-sub">Incident record opened, threaded, awaiting response</div>
@@ -621,23 +594,6 @@
         </div>
       </div>
 
-      <!-- Test results -->
-      <div class="test-results" id="testResults">
-        <div class="panel">
-          <div class="panel-header" id="testPanelHeader">🧪 Test Results</div>
-          <div class="panel-body">
-            <div class="test-header">
-              <span class="test-framework-badge" id="fwBadge"></span>
-              <div class="test-stats">
-                <span class="stat-pass" id="statPass"></span>
-                <span class="stat-fail" id="statFail"></span>
-              </div>
-            </div>
-            <div id="testCaseList"></div>
-          </div>
-        </div>
-      </div>
-
     </div><!-- /right column -->
   </div><!-- /grid -->
 </main>
@@ -711,7 +667,6 @@
     document.getElementById('agentLog').innerHTML = '';
     document.getElementById('incidentCard').style.display = 'none';
     document.getElementById('slackPreview').style.display = 'none';
-    document.getElementById('testResults').style.display = 'none';
     document.getElementById('runMeta').style.display = 'none';
     currentIncident = null;
     ['sql','log','schema'].forEach(k => {
@@ -725,10 +680,9 @@
       'step-trigger': 'Waiting for trigger…',
       'step-tools': 'sql_validator · log_analyser · schema_comparator',
       'step-synth': 'Deterministic — same signals, same call, every time',
-      'step-tests': 'Incident → pytest diagnostics · a clean run skips it',
       'step-notify': 'Incident record opened, threaded, awaiting response',
     };
-    ['step-trigger','step-tools','step-synth','step-tests','step-notify'].forEach((id, i) => {
+    ['step-trigger','step-tools','step-synth','step-notify'].forEach((id, i) => {
       const el = document.getElementById(id);
       el.className = 'step';
       el.querySelector('.step-dot').textContent = i + 1;
@@ -892,24 +846,6 @@
     renderSlackMessage(currentIncident);
   };
 
-  function showTestResults(data) {
-    document.getElementById('testResults').style.display = 'block';
-    document.getElementById('testPanelHeader').textContent = '🧪 Test Results — ' + data.framework;
-    const badge = document.getElementById('fwBadge');
-    badge.textContent = data.framework;
-    badge.className = 'test-framework-badge pytest';
-    document.getElementById('statPass').textContent = `✓ ${data.passed} passed`;
-    document.getElementById('statFail').textContent = `✗ ${data.failed} failed`;
-    const list = document.getElementById('testCaseList');
-    list.innerHTML = '';
-    data.cases.forEach(c => {
-      const div = document.createElement('div');
-      div.className = 'test-case';
-      div.innerHTML = `<span class="tc-icon">${c.passed ? '✅' : '❌'}</span><span style="color:${c.passed ? 'var(--text)' : 'var(--red)'}">${c.name}</span>`;
-      list.appendChild(div);
-    });
-  }
-
   function toolLabel(t) { return t; }
 
   // ─── Scenario data ───
@@ -1024,33 +960,6 @@
     },
   };
 
-  const FAILED_TESTS = {
-    row_drop: { passed: 6, failed: 2, cases: [
-      ['test_clean_run_passes', false], ['test_row_drop_detected', true],
-      ['test_null_spike_detected', true], ['test_duplicate_detection', true],
-      ['test_mock_clean_passes', false], ['test_mock_row_drop_fails', true],
-      ['test_all_pass_on_none', false], ['test_sql_detects_row_drop', true],
-    ]},
-    schema_drift: { passed: 5, failed: 3, cases: [
-      ['test_clean_schema_passes', false], ['test_renamed_column_detected', true],
-      ['test_removed_column_detected', true], ['test_mock_schema_drift_fails', true],
-      ['test_schema_detects_drift', true], ['test_mock_clean_passes', false],
-      ['test_all_pass_on_none', false], ['test_sql_unaffected_by_schema_drift', true],
-    ]},
-    null_spike: { passed: 4, failed: 4, cases: [
-      ['test_clean_run_passes', false], ['test_null_spike_detected', true],
-      ['test_mock_null_spike_fails', true], ['test_sql_detects_null_spike', true],
-      ['test_log_detects_null_errors', true], ['test_mock_clean_passes', false],
-      ['test_all_pass_on_none', false], ['test_missing_log_reports_error', false],
-    ]},
-    latency: { passed: 5, failed: 3, cases: [
-      ['test_mock_latency_fails', true], ['test_kafka_lag_detected', true],
-      ['test_status_is_fail_on_lag', true], ['test_log_detects_kafka_lag', true],
-      ['test_mock_clean_passes', false], ['test_all_pass_on_none', false],
-      ['test_sql_unaffected_by_latency', true], ['test_mock_null_spike_fails', false],
-    ]},
-  };
-
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   function makeIncidentId() {
@@ -1120,7 +1029,6 @@
           requires_approval: false, recommended_action: null, runbook: null, confidence: 0.98 });
         document.getElementById('incidentLabel').textContent = 'CLEAN';
         document.getElementById('incidentEmoji').textContent = '✅';
-        setStep('step-tests', 'done', 'No incident — nothing to diagnose');
         appendLog('→ clean log set: no signature matched, so no incident is opened', 'log-dim');
         setStep('step-notify', 'done', 'No incident to post');
         appendLog('→ notify_slack: clean run, nothing posted', 'log-dim');
@@ -1142,15 +1050,6 @@
         appendLog(`✦ SEVERITY: ${inc.severity} — ${inc.severity_rationale}`, 'log-result-fail');
         appendLog(`→ open_incident + persist → ${inc.incident_id}`, 'log-info');
         showIncidentCard(inc);
-
-        setStep('step-tests', 'active', 'Launching pytest…');
-        appendLog('→ Invoking pytest (diagnostic deep-dive)…', 'log-info');
-        await sleep(1200);
-        const ft = FAILED_TESTS[mode] || {passed: 0, failed: 0, cases: []};
-        setStep('step-tests', 'fail', `pytest: ${ft.passed} passed, ${ft.failed} failed`);
-        appendLog(`← pytest complete: ${ft.passed} passed / ${ft.failed} failed`, 'log-result-fail');
-        showTestResults({ framework: 'pytest', passed: ft.passed, failed: ft.failed,
-          cases: ft.cases.map(([name, passed]) => ({name, passed})) });
 
         setStep('step-notify', 'done', `Posted ${inc.incident_id} to #etl-prod-alerts`);
         appendLog(`→ notify_slack: posted ${inc.incident_id} to #etl-prod-alerts (chat.postMessage)`, 'log-info');
