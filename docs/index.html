@@ -390,11 +390,14 @@
 
 <div class="banner">
   <div class="banner-inner">
+    <strong>Nothing here reaches Slack.</strong> This page has no backend and makes no network calls —
+    the Slack message below is rendered in your browser, not sent. To post a real alert, run
+    <code>scripts/logset.py</code> from the repo. <br><br>
     <strong>What this is:</strong> a client-side simulation of the real severity classification and incident logic in
     <a href="https://github.com/hpk369/ai-qa-agent/blob/main/agent/severity.py" target="_blank" rel="noopener">agent/severity.py</a>
     and <a href="https://github.com/hpk369/ai-qa-agent/blob/main/agent/slack_blocks.py" target="_blank" rel="noopener">agent/slack_blocks.py</a> —
     the severities, rationale text, and Slack message shown below are the actual values those modules produce for each mode's signals
-    (see <a href="https://github.com/hpk369/ai-qa-agent/blob/main/tests/pytest/test_agent_response.py" target="_blank" rel="noopener">the tests</a> that pin them),
+    (see <a href="https://github.com/hpk369/ai-qa-agent/blob/main/tests/pytest/test_severity.py" target="_blank" rel="noopener">the tests</a> that pin them),
     reproduced here in JS so this page needs no backend on GitHub Pages. The Claude tool-use call itself is not live in this demo —
     see the <a href="https://github.com/hpk369/ai-qa-agent#what-this-is" target="_blank" rel="noopener">README</a> for how the agent runs outside this page.
   </div>
@@ -410,39 +413,38 @@
       <div class="panel">
         <div class="panel-header">⬡ Pipeline Architecture</div>
         <div class="panel-body">
-          <div class="arch"><span class="hl">Kafka</span> / Cron / Webhook
-       │
-  [<span class="hl">n8n Trigger</span>]
-       │
-  [<span class="hl2">Triage Agent</span>] ◄── <span class="hl2">Claude API</span>
-       │   (reports signals only)
-  ┌────┴──────────┐
-  │               │               │
-<span class="hl">[SQL Valid.]</span>  <span class="hl">[Log Analyser]</span>  <span class="hl">[Schema Cmp.]</span>
-  │               │               │
-  └───────┬────────────────────────┘
+          <div class="arch"><span class="hl">Log set</span> — real public logs + injected failures
+   batch: scripts/logset.py
+   stream: scripts/stream.py
           │
+  [<span class="hl">Signature scan</span>]  logsets/catalog.py
+   15 sources · 14 ETL signatures
+          │   (signals read from log text only)
   [<span class="hl2">Severity Classifier</span>]
    deterministic — config/severity.yml
           │
     ┌─────┴──────┐
   clean       incident (P1–P4)
-    │            │
- <span class="hl3">[Robot FW]</span>    <span class="hl4">[pytest]</span>
-    │            │
-    └────┬───────┘
-         │
-  [<span class="hl">Slack Bot</span>] + [<span class="hl">Jenkins</span>]
-   threaded · Approve/Reject/Escalate</div>
+                 │
+        [<span class="hl2">Incident record</span>]  agent/incident.py
+         + runbook  agent/runbooks.py
+                 │
+        [<span class="hl">Slack alert</span>]  agent/slack_blocks.py
+         narration ◄── <span class="hl2">Claude</span>  agent/llm.py
+         threaded · Approve/Reject/Escalate
+                 │
+        [<span class="hl4">Resolution gate</span>]  logsets/stream.py
+         holds the stream until a human
+         confirms the fix in Slack</div>
           <div class="tech-pills">
-            <span class="pill">n8n</span>
-            <span class="pill">Claude API</span>
+            <span class="pill">Python 3.11</span>
+            <span class="pill">Claude (Haiku 4.5)</span>
             <span class="pill">FastAPI</span>
             <span class="pill">Slack Block Kit</span>
-            <span class="pill">Robot Framework</span>
             <span class="pill">pytest</span>
-            <span class="pill">Kafka</span>
-            <span class="pill">PostgreSQL</span>
+            <span class="pill">GitHub Actions</span>
+            <span class="pill">Workload Identity Federation</span>
+            <span class="pill">Docker</span>
           </div>
         </div>
       </div>
@@ -923,9 +925,9 @@
   function toolLabel(t) { return t; }
 
   // ─── Scenario data ───
-  // Tool outputs mirror mock_pipeline/failures.py's real mock data; incident
+  // Signals mirror what logsets/catalog.py's signatures produce; incident
   // fields mirror agent/severity.py + agent/incident.py's actual output for
-  // these exact signals (see tests/pytest/test_agent_response.py).
+  // these exact signals (see tests/pytest/test_severity.py).
   const BASE_ROWS = 100000;
   const SIM = {
     none: {
