@@ -41,6 +41,15 @@ on:
       rate:
         description: Log lines per second
         default: "8"
+      auto_resolve:
+        description: >-
+          Seconds before a blocking incident releases itself. 0 waits for a
+          real human in Slack instead — a reply the model reads as a fix, or a
+          ✅ on the alert. Raise max_block_wait to match if you set this to 0.
+        default: "30"
+      max_block_wait:
+        description: Seconds to hold a blocked stream before giving up
+        default: "90"
 
 permissions:
   contents: read
@@ -133,6 +142,8 @@ jobs:
           SLACK_CHANNEL_ALERTS: ${{ vars.SLACK_CHANNEL_ALERTS }}
           SLACK_CHANNEL_P1: ${{ vars.SLACK_CHANNEL_P1 }}
           SLACK_CHANNEL_CHANGES: ${{ vars.SLACK_CHANNEL_CHANGES }}
+          AUTO_RESOLVE: ${{ inputs.auto_resolve || '30' }}
+          MAX_BLOCK_WAIT: ${{ inputs.max_block_wait || '90' }}
         run: |
           set -euo pipefail
           # An unset Actions variable arrives as an empty string, not as an
@@ -144,14 +155,28 @@ jobs:
                       SLACK_CHANNEL_P1 SLACK_CHANNEL_CHANGES SLACK_BOT_TOKEN; do
             if [ -z "${!name:-}" ]; then unset "${name}"; fi
           done
+          # --auto-resolve is what makes an unattended run finish, and it is
+          # also what hides the gate: it releases on a timer before anyone could
+          # answer in Slack, so every green run so far has proved the gate can
+          # be *read*, never that a human can open it. Passing 0 omits the flag
+          # entirely, which is how the runner is made to wait for a real reply
+          # or ✅ — give max_block_wait enough seconds to actually reach Slack.
+          gate=(--max-block-wait "${MAX_BLOCK_WAIT}")
+          if [ "${AUTO_RESOLVE}" = "0" ]; then
+            echo "attended run: the gate holds until a human confirms in Slack," \
+                 "or ${MAX_BLOCK_WAIT}s passes"
+          else
+            gate+=(--auto-resolve "${AUTO_RESOLVE}")
+            echo "unattended run: a blocking incident releases itself after ${AUTO_RESOLVE}s"
+          fi
           python scripts/stream.py \
             --duration "${{ inputs.duration || '120' }}" \
             --rate "${{ inputs.rate || '8' }}" \
             --gap 20 40 \
             --poll 5 \
-            --auto-resolve 30 \
-            --max-block-wait 90
-          # --auto-resolve: nobody is watching Slack on a scheduled run, so a
+            "${gate[@]}"
+          # The schedule never passes inputs, so it keeps the unattended
+          # defaults: nobody is watching Slack at 07:17 on a Monday and a
           # blocking incident releases itself rather than holding the runner
           # until max-block-wait. Drop it to see the gate hold for real.
 
