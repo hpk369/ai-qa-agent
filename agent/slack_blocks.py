@@ -29,6 +29,24 @@ class SlackBlockLimitError(ValueError):
     limit — never let this fail at post time instead."""
 
 
+def format_actor(actor: str) -> str:
+    """Render an actor as a Slack mention only when Slack can resolve one.
+
+    A Slack user ID (U…/W…) becomes <@U123>, which Slack renders as a
+    name. Anything else — an approval console identity from Cloudflare
+    Access, "system", a CI job — is returned as plain text, because
+    <@someone@example.com> is not a mention, it is those characters
+    shown literally in the channel.
+    """
+    actor = (actor or "").strip()
+    if not actor:
+        return "unknown"
+    bare = actor.lstrip("@")
+    if len(bare) >= 2 and bare[0] in "UW" and bare[1:].isalnum() and bare[1:].isupper():
+        return f"<@{bare}>"
+    return actor
+
+
 def _mrkdwn(text: str) -> dict[str, str]:
     return {"type": "mrkdwn", "text": text}
 
@@ -114,6 +132,37 @@ def _context_block(incident: Incident, run_id: str | None) -> dict[str, Any]:
 
 
 def _actions_block(incident: Incident) -> dict[str, Any]:
+    """Approve / Reject / Escalate.
+
+    Two shapes, chosen by whether an approval console is deployed
+    (AGENT_PUBLIC_URL). With one, the buttons carry `url` and open the
+    console, which is the only form that works for an alert posted by
+    CI: the runner that opened the incident is destroyed minutes later,
+    so a button POSTing back to /slack/action reaches a server that has
+    never heard of that incident. A `url` button also asks nothing of
+    Slack's interactivity endpoint, so no signing secret is involved.
+
+    Without a console the original action_id buttons are kept, because
+    they do work in the one case they were written for: a server and a
+    triage run sharing a disk on the same machine.
+    """
+    from agent.console import incident_url  # local: console imports incident, which imports this
+
+    url = incident_url(incident.incident_id)
+    if url:
+        return {
+            "type": "actions",
+            "block_id": "incident_approval_actions",
+            "elements": [
+                {"type": "button", "text": _plain("Approve"), "style": "primary",
+                 "url": f"{url}?intent=approved", "action_id": "incident_console_approve"},
+                {"type": "button", "text": _plain("Reject"), "style": "danger",
+                 "url": f"{url}?intent=rejected", "action_id": "incident_console_reject"},
+                {"type": "button", "text": _plain("Escalate"),
+                 "url": f"{url}?intent=escalated", "action_id": "incident_console_escalate"},
+            ],
+        }
+
     return {
         "type": "actions",
         "block_id": "incident_approval_actions",

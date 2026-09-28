@@ -126,3 +126,104 @@ moment later. If nothing arrives, check the agent server's logs first
 (`notify_slack`/`process_slack_action` log every failure loudly, per
 this codebase's "Slack is a view, never the source of truth" design —
 nothing here fails silently).
+
+---
+
+## 8. Approve / Reject / Escalate: the approval console
+
+The three buttons on every alert need more than a public URL, and it is
+worth understanding why before wiring anything.
+
+An incident lives in `reports/incidents/` **on the machine that opened
+it**. When the alert comes from CI that machine is a GitHub runner, and
+it is destroyed minutes later. A Slack button posting back to
+`/slack/action` therefore reaches a server that has never heard of that
+incident, and can only log `referenced unknown incident`. The click does
+nothing, silently.
+
+So the buttons work in exactly two arrangements:
+
+| Arrangement | Buttons |
+|---|---|
+| A triage run and the server on one machine, sharing `reports/` | The original in-Slack buttons work. This is step 7 above. |
+| Alerts from CI | Needs the approval console below. |
+
+### How the console works
+
+```
+GitHub Actions                        your console host
+  triage → post_incident              POST /incidents   (bearer token)
+         → push the record  ──────▶   stored in ITS reports/incidents/
+
+  Slack alert: url buttons ─────▶     GET /incident/<id>   (Cloudflare Access)
+                                        Approve / Reject / Escalate
+                                            │
+                                            ├─▶ the incident record
+                                            ├─▶ a reply in the Slack thread
+                                            └─▶ a line in #etl-changes
+```
+
+Because the buttons carry `url` rather than an `action_id`, Slack opens a
+link instead of calling you: **no Request URL and no
+`SLACK_SIGNING_SECRET` are involved in this path at all.**
+
+### Deploy it
+
+The console is the same app as the agent server. `Dockerfile` builds it
+and runs uvicorn on `$PORT`, so Fly, Render, Railway, Cloud Run or a
+plain VM all work.
+
+**`reports/` must be a persistent volume.** The console exists to hold
+records that outlive the runner; on ephemeral storage it forgets every
+incident on redeploy and every button lands on "unknown incident".
+
+Set on the console:
+
+```
+AGENT_PUBLIC_URL=https://triage.inkandinfra.com
+AGENT_INGEST_TOKEN=<a long random string>
+SLACK_BOT_TOKEN=xoxb-...        # it replies in the thread and posts the audit line
+SLACK_CHANNEL_CHANGES=C...
+SLACK_MODE=live
+```
+
+Set on the triage side — locally in `.env`, and in CI as an Actions
+secret plus variable:
+
+```
+AGENT_PUBLIC_URL=https://triage.inkandinfra.com
+AGENT_INGEST_URL=https://triage.inkandinfra.com/incidents
+AGENT_INGEST_TOKEN=<the same random string>
+```
+
+An unset `AGENT_INGEST_TOKEN` on the console rejects every push. That is
+deliberate — an ingest endpoint open by default would let anyone write
+the records the console then acts on.
+
+### Put Cloudflare Access in front of it
+
+The console has no login of its own by design. It reads the verified
+identity from Cloudflare's `Cf-Access-Authenticated-User-Email` header
+and records that email as the approver; with no such header it refuses
+to act rather than guessing an identity.
+
+1. **[one.dash.cloudflare.com](https://one.dash.cloudflare.com) → Access → Applications → Add an application → Self-hosted**
+2. Domain: `triage.inkandinfra.com`
+3. Add a policy: Action **Allow**, Include → **Emails** → your address
+4. Save
+
+Leave `/incidents` reachable by CI. Access protects the browser paths; if
+your policy covers the whole hostname, add a **Service Auth** policy or a
+bypass for `/incidents`, or CI's push will be answered with a login page
+instead of being stored.
+
+### Verify
+
+```bash
+curl https://triage.inkandinfra.com/health          # {"status":"ok"}
+curl -X POST https://triage.inkandinfra.com/incidents   # 401 without the token
+```
+
+Then dispatch a triage run and click **Approve** on the alert. You should
+land on the console already signed in, and after deciding see a reply in
+the incident's thread and a line in `#etl-changes`.

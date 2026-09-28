@@ -31,8 +31,16 @@ class TestPerFailureMode:
         assert select_runbook(signals) == RB_ROW_SHORTFALL
 
     def test_schema_drift_selects_schema_drift(self):
-        signals = {**_clean_signals(), "job_failed_no_path_to_sla": True}
+        signals = {**_clean_signals(), "job_failed_no_path_to_sla": True, "schema_drift": True}
         assert select_runbook(signals) == RB_SCHEMA_DRIFT
+
+    def test_a_failed_job_that_is_not_schema_drift_selects_job_failure(self):
+        """A container OOM and a retry exhaustion raise the same
+        job_failed_no_path_to_sla signal as schema drift does, and used to
+        inherit its runbook — an OOM linking to "missing column". Only the
+        signature that is actually schema drift sets schema_drift."""
+        signals = {**_clean_signals(), "job_failed_no_path_to_sla": True}
+        assert select_runbook(signals) == RB_JOB_FAILURE
 
     def test_null_spike_selects_null_spike(self):
         signals = {**_clean_signals(), "null_rate_increase_pct": {"customer_id": 35.0}}
@@ -70,5 +78,6 @@ class TestPrecedence:
     def test_schema_drift_signal_wins_over_row_variance(self):
         # A schema-drift-shaped failure could incidentally show some row
         # variance too -- the more specific signal must win.
-        signals = {**_clean_signals(), "job_failed_no_path_to_sla": True, "row_variance_pct": 12.0}
+        signals = {**_clean_signals(), "job_failed_no_path_to_sla": True,
+                   "schema_drift": True, "row_variance_pct": 12.0}
         assert select_runbook(signals) == RB_SCHEMA_DRIFT

@@ -319,7 +319,12 @@ SIGNATURES: tuple[Signature, ...] = (
         id="SIG-002-SCHEMA-DRIFT",
         title="Target schema drift aborted the write",
         pattern=re.compile(r"Column '([\w.]+)' not found in target schema", re.I),
-        to_signals=lambda m: {"job_failed_no_path_to_sla": True},
+        # Both signals: job_failed_no_path_to_sla is what severity reads (a
+        # failed write with no path to SLA, same as an OOM or a retry
+        # exhaustion), and schema_drift is what tells the runbook selector
+        # *which* failure this was. Three signatures raise the first; only
+        # this one is schema drift.
+        to_signals=lambda m: {"job_failed_no_path_to_sla": True, "schema_drift": True},
         render=_render_schema_drift,
         families=("spark", "hive", "hadoop"),
     ),

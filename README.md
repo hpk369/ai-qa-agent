@@ -12,7 +12,7 @@ It runs two ways. **Batch** (`scripts/logset.py`) mixes one finished log set and
 
 ## What this is
 
-**One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** It runs with no API key, no cluster and no services — `python scripts/logset.py` does the whole thing on a fresh clone.
+**One loop: a set of logs in, a Slack alert out, and the logs behind it downloadable.** It runs with no API key, no cluster and no services — install the requirements and `python scripts/logset.py` does the whole thing on a fresh clone.
 
 The pieces behind that loop:
 
@@ -29,15 +29,23 @@ The pieces behind that loop:
 | Live stream, backpressure, the resolution gate | `logsets/stream.py` |
 | Alert narration and resolution judgement | `agent/llm.py` |
 | Model providers: Claude, Ollama, any OpenAI-compatible endpoint | `agent/providers.py` |
+| Approval console — decide an incident from a web page | `agent/console.py`, `Dockerfile` |
 | Entry points | `scripts/logset.py`, `scripts/stream.py`, `scripts/slack_reply.py`, `POST /logset/run`, `GET /logset/{id}/download` |
 
 **Slack runs in stub mode by default.** `SLACK_MODE=stub` writes every payload Slack would have received to `reports/slack/` and makes no network call, so the full alert path — parent message, thread reply, P1 mirror, button interactions — runs end to end with nothing to set up. Set `SLACK_MODE=live` with a bot token in `.env` to post into a real workspace; [`docs/SLACK_SETUP.md`](docs/SLACK_SETUP.md) walks through obtaining each value.
+
+**One honest limit on the Approve/Reject/Escalate buttons.** They post back to `/slack/action`, which loads the incident from `reports/incidents/` — so they work when a triage run and the server share a disk, which is the local flow above and the stub-mode tests. They do *not* work for an alert posted by CI, because the runner that opened the incident is destroyed minutes later and the server has never seen it. [`docs/SLACK_SETUP.md` §8](docs/SLACK_SETUP.md) describes the approval console that closes that gap by pushing each incident to a deployed host and linking the buttons to it; the console is built and tested but has not yet been run against a live deployment.
 
 <a id="demo-pages"></a>**Demo page.** [`docs/index.html`](https://demo.inkandinfra.com/) is a client-side simulation of `agent/severity.py`'s and `agent/slack_blocks.py`'s output for each mock-pipeline failure mode, including a working Approve/Reject/Escalate flow against a mocked Slack thread. It needs no backend, so it works unmodified on GitHub Pages.
 
 ## Log-set triage
 
 ```bash
+# Once, on a fresh clone. A virtualenv is optional but keeps this off your
+# system Python.
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
 # Optional: fetch the public log corpus (~3 MB, gitignored, not vendored).
 # Skip it and background lines are generated instead — the manifest says which.
 python scripts/fetch_logs.py

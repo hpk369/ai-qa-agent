@@ -7,6 +7,7 @@ round-trip persist/load.
 
 import os
 import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
@@ -82,7 +83,20 @@ class TestOpenIncident:
 
 
 class TestIncidentIdCollision:
-    def test_second_incident_same_minute_gets_suffix(self, incidents_dir):
+    def test_second_incident_same_minute_gets_suffix(self, incidents_dir, monkeypatch):
+        # The clock is frozen because the assertion is about two incidents in
+        # the SAME minute. Left to the wall clock this test fails whenever a
+        # run straddles a minute boundary: the two ids then differ legitimately
+        # and the suffix never appears — a real, if rare, flake.
+        frozen = datetime(2026, 9, 28, 17, 59, 0, tzinfo=timezone.utc)
+
+        class FrozenDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen
+
+        monkeypatch.setattr(incident_module, "datetime", FrozenDatetime)
+
         inc1 = open_incident({}, _p2_result(), _run_context())
         persist(inc1)
 

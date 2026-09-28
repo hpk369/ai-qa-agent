@@ -28,8 +28,17 @@ def select_runbook(signals: dict[str, Any]) -> str | None:
     `signals`, or None if nothing in the current runbook set covers it
     (e.g. a clean run, or a condition none of the five current runbooks
     address yet)."""
-    if signals.get("job_failed_no_path_to_sla"):
+    if signals.get("schema_drift"):
         return RB_SCHEMA_DRIFT
+
+    # Checked after schema drift, and deliberately not RB-002. Three
+    # signatures raise this signal — schema drift, a container OOM, and a job
+    # that failed after repeated task failures — and only the first is schema
+    # drift. RB-005 names this case in its own severity guidance ("no path to
+    # complete before SLA"), so an OOM now links to the runbook that covers it
+    # rather than to one about a missing column.
+    if signals.get("job_failed_no_path_to_sla"):
+        return RB_JOB_FAILURE
 
     if signals.get("target_unavailable") or signals.get("control_total_mismatch"):
         return RB_JOB_FAILURE
