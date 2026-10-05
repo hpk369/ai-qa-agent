@@ -31,8 +31,7 @@ name: triage stream
 # fresh clone does not go red.
 
 on:
-  schedule:
-    - cron: "17 7 * * 1"        # Mondays, 07:17 UTC
+  # The Monday 07:17 UTC schedule was removed; the run is manual-only now.
   workflow_dispatch:
     inputs:
       duration:
@@ -175,10 +174,9 @@ jobs:
             --gap 20 40 \
             --poll 5 \
             "${gate[@]}"
-          # The schedule never passes inputs, so it keeps the unattended
-          # defaults: nobody is watching Slack at 07:17 on a Monday and a
-          # blocking incident releases itself rather than holding the runner
-          # until max-block-wait. Drop it to see the gate hold for real.
+          # Without inputs the run keeps the unattended defaults: a blocking
+          # incident releases itself rather than holding the runner until
+          # max-block-wait. Set auto_resolve to 0 to see the gate hold for real.
 
       - name: Report what the run cost in incidents
         if: always()
